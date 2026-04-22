@@ -103,7 +103,7 @@ def _remove_paywalls(page: Page, is_medium: bool = False) -> None:
     if is_medium:
         js = """() => {
             document.querySelectorAll('div.meteredContent, section[class*="locked"], div.paywall, [class*="paywall"], .meter-banner, .locked-content').forEach(el => {
-                el.remove(); el.style.display = 'none';
+                el.remove();
             });
             document.body.classList.remove('meter-locked', 'paywall-active');
             document.querySelectorAll('p, h1, h2, img').forEach(el => {
@@ -129,11 +129,16 @@ def _enable_extension(context: BrowserContext, page: Page) -> None:
     for attempt in range(3):
         try:
             popup = context.new_page()
-            popup.goto(f"chrome-extension://{EXTENSION_ID}/popup.html", timeout=10_000)
-            btn = popup.locator("button, [role='button']")
-            if btn.is_visible():
-                btn.first.click()
-            popup.close()
+            try:
+                popup.goto(f"chrome-extension://{EXTENSION_ID}/popup.html", timeout=10_000)
+                btn = popup.locator("button, [role='button']")
+                if btn.is_visible(timeout=0):
+                    btn.first.click()
+            finally:
+                try:
+                    popup.close()
+                except Exception:
+                    pass
             page.wait_for_load_state("networkidle", timeout=NETWORK_IDLE_TIMEOUT_MS)
             return
         except Exception as e:
@@ -203,7 +208,7 @@ def open_page(url: str, options: LoadOptions):
     parsed = urlparse(url)
     referer = f"{parsed.scheme}://{parsed.netloc}/"
 
-    user_data_dir = Path.cwd() / "playwright-user-data"
+    user_data_dir = Path(__file__).parent.parent / "playwright-user-data"
     user_data_dir.mkdir(exist_ok=True)
 
     launch_args = [
@@ -247,7 +252,7 @@ def open_page(url: str, options: LoadOptions):
 
         success, mode = _try_load(page, context, url, is_medium, use_ext)
         if not success:
-            page.screenshot(path="debug_failed_load.png")
+            page.screenshot(path=str(Path(__file__).parent.parent / "debug_failed_load.png"))
             raise RuntimeError(
                 "Could not load page content. Screenshot saved to debug_failed_load.png. "
                 "Try --no-extension, --freedium, or --no-headless."
@@ -256,6 +261,12 @@ def open_page(url: str, options: LoadOptions):
         yield page
     finally:
         if context:
-            context.close()
-        playwright.stop()
+            try:
+                context.close()
+            except Exception:
+                pass
+        try:
+            playwright.stop()
+        except Exception:
+            pass
         shutil.rmtree(user_data_dir, ignore_errors=True)
