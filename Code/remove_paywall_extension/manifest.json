@@ -1,0 +1,19 @@
+{
+   "action": {
+      "default_icon": {
+         "128": "icon128.png",
+         "16": "icon16.png",
+         "48": "icon48.png"
+      }
+   },
+   "background": {
+      "service_worker": "background.js"
+   },
+   "description": "Bypass paywalls by accessing archived versions of articles",
+   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAgHHhyhksVeHTEE2bkyknl7cmQlClL7nz3B/QkVXhCdFnLIUtp+p9Z3HKABsmRi6HZC9QD01LxQrYndUbjnbofP4XNf7t7GVnMNB9gzpCAD9bDa5EmJ2O4XiXrtQ4gWISwEpM/90y4AI1a7zwuBa6X9cW6EbGqggIHrd2GX5qtD+GA7h0eFRzmkY/iZdYXlk6gFBK37OKZ0VP2sw5occ00PsnI2wZa2UfiZ++apt1VrC/44KpBohFTa9fKe/68IkXPvjhpBp6fYRi2guznAMKX8pblmK+Scl8rpgXW6/s0BYGdgzvXPv+c6Ro70PT/+5mWgoc5Qv8MBB5+MXYIyfJvQIDAQAB",
+   "manifest_version": 3,
+   "name": "Remove Paywalls",
+   "permissions": [ "activeTab" ],
+   "update_url": "https://clients2.google.com/service/update2/crx",
+   "version": "1.0"
+}
