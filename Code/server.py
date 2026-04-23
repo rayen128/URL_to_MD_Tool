@@ -36,8 +36,113 @@ def _get_semaphore() -> asyncio.Semaphore:
     return _semaphore
 
 
+class ConvertRequest(BaseModel):
+    urls: list[str]
+    format: str = "pdf"
+    collection: str = ""
+    options: dict = {}
+
+
+@app.post("/api/convert")
+async def post_convert(body: ConvertRequest):
+    job = store.create(
+        urls=body.urls,
+        fmt=body.format,
+        name=body.collection,
+        options=body.options,
+    )
+    asyncio.create_task(_run_job(job))
+    return {
+        "job_id": job["id"],
+        "items": [
+            {
+                "id": item["id"],
+                "url": item["url"],
+                "domain": item["domain"],
+                "favicon": item["favicon"],
+                "status": item["status"],
+            }
+            for item in job["items"]
+        ],
+    }
+
+
+async def _run_job(job: dict) -> None:
+    sem = _get_semaphore()
+    loop = asyncio.get_running_loop()
+
+    async def process_item(item: dict) -> None:
+        async with sem:
+            if job["cancelled"]:
+                item["status"] = "error"
+                item["error"] = "Cancelled"
+                store.push_event(job["id"], {
+                    "type": "status", "url_id": item["id"],
+                    "status": "error", "error": "Cancelled",
+                })
+                return
+            await loop.run_in_executor(_executor, _convert_one_sync, job, item)
+
+    await asyncio.gather(
+        *[process_item(item) for item in job["items"]],
+        return_exceptions=True,
+    )
+    store.push_event(job["id"], {"type": "done"})
+
+
 def _convert_one_sync(job: dict, item: dict) -> None:
-    pass
+    if job["cancelled"]:
+        item["status"] = "error"
+        item["error"] = "Cancelled"
+        store.push_event(job["id"], {
+            "type": "status", "url_id": item["id"],
+            "status": "error", "error": "Cancelled",
+        })
+        return
+
+    item["status"] = "working"
+    store.push_event(job["id"], {"type": "status", "url_id": item["id"], "status": "working"})
+
+    opts = job["options"]
+    options = LoadOptions(
+        headless=True,
+        use_extension=opts.get("reader", True),
+        block_images=not opts.get("images", True),
+        use_freedium=False,
+    )
+    page_size = opts.get("pageSize", "A4")
+    include_images = opts.get("images", True)
+    fmt = job["format"]
+    coll = job["name"].replace(" ", "_") if job["name"] else None
+    out_dir = OUTPUT_ROOT / coll if coll else OUTPUT_ROOT
+    out_dir.mkdir(parents=True, exist_ok=True)
+    stem = sanitize_filename(item["url"])
+    suffix = ".pdf" if fmt == "pdf" else ".md"
+    out_path = out_dir / (stem + suffix)
+
+    try:
+        with open_page(item["url"], options) as page:
+            title = page.title() or stem
+            if fmt == "pdf":
+                save_pdf(page, out_path, page_size=page_size)
+            else:
+                save_markdown(page, out_path, include_images=include_images)
+        item["status"] = "done"
+        item["title"] = title
+        item["file"] = out_path
+        item["size"] = out_path.stat().st_size
+        item["filename"] = stem + suffix
+        store.push_event(job["id"], {
+            "type": "status", "url_id": item["id"], "status": "done",
+            "title": title, "size": item["size"], "filename": item["filename"],
+        })
+    except Exception as e:
+        item["status"] = "error"
+        item["error"] = str(e)
+        store.push_event(job["id"], {
+            "type": "status", "url_id": item["id"],
+            "status": "error", "error": str(e),
+        })
 
 
 @app.get("/api/collections")
