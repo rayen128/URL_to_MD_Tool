@@ -38,3 +38,33 @@ def test_save_markdown_creates_nested_parent_dir(tmp_path):
     out = tmp_path / "nested" / "dir" / "test.md"
     save_markdown(page, out)
     assert out.exists()
+
+
+def test_save_pdf_default_page_size_is_a4(tmp_path):
+    page = MagicMock()
+    save_pdf(page, tmp_path / "out.pdf")
+    _, kwargs = page.pdf.call_args
+    assert kwargs["format"] == "A4"
+
+
+def test_save_pdf_custom_page_size(tmp_path):
+    page = MagicMock()
+    save_pdf(page, tmp_path / "out.pdf", page_size="Letter")
+    _, kwargs = page.pdf.call_args
+    assert kwargs["format"] == "Letter"
+
+
+def test_save_markdown_strips_images_by_default(tmp_path):
+    page = MagicMock()
+    page.evaluate.return_value = '<img src="photo.jpg"><p>Body text</p>'
+    out = tmp_path / "out.md"
+    save_markdown(page, out)
+    assert "photo.jpg" not in out.read_text(encoding="utf-8")
+
+
+def test_save_markdown_includes_images_when_requested(tmp_path):
+    page = MagicMock()
+    page.evaluate.return_value = '<img src="photo.jpg" alt="Photo"><p>Body text</p>'
+    out = tmp_path / "out.md"
+    save_markdown(page, out, include_images=True)
+    assert "photo.jpg" in out.read_text(encoding="utf-8")
