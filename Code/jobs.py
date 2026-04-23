@@ -1,7 +1,6 @@
 import asyncio
 import time
 import uuid
-from pathlib import Path
 from urllib.parse import urlparse
 
 
@@ -9,6 +8,7 @@ class JobStore:
     def __init__(self):
         self._jobs: dict[str, dict] = {}
         self._queues: dict[str, asyncio.Queue] = {}
+        self._loops: dict[str, asyncio.AbstractEventLoop] = {}
 
     def create(self, urls: list[str], fmt: str, name: str, options: dict) -> dict:
         job_id = f"j-{int(time.time() * 1000)}-{uuid.uuid4().hex[:6]}"
@@ -38,6 +38,10 @@ class JobStore:
         }
         self._jobs[job_id] = job
         self._queues[job_id] = asyncio.Queue()
+        try:
+            self._loops[job_id] = asyncio.get_running_loop()
+        except RuntimeError:
+            self._loops[job_id] = None
         return job
 
     def get(self, job_id: str) -> dict | None:
@@ -45,6 +49,7 @@ class JobStore:
 
     def delete(self, job_id: str) -> dict | None:
         self._queues.pop(job_id, None)
+        self._loops.pop(job_id, None)
         return self._jobs.pop(job_id, None)
 
     def list_all(self) -> list[dict]:
@@ -53,7 +58,11 @@ class JobStore:
     def push_event(self, job_id: str, event: dict) -> None:
         q = self._queues.get(job_id)
         if q is not None:
-            q.put_nowait(event)
+            loop = self._loops.get(job_id)
+            if loop is not None and loop.is_running():
+                loop.call_soon_threadsafe(q.put_nowait, event)
+            else:
+                q.put_nowait(event)
 
     async def get_event(self, job_id: str) -> dict | None:
         q = self._queues.get(job_id)
@@ -65,7 +74,7 @@ class JobStore:
 def _domain(url: str) -> str:
     try:
         host = urlparse(url).hostname or "unknown"
-        return host.replace("www.", "")
+        return host.removeprefix("www.")
     except Exception:
         return "unknown"
 
@@ -73,6 +82,8 @@ def _domain(url: str) -> str:
 def _favicon(url: str) -> str:
     try:
         host = urlparse(url).hostname
+        if not host:
+            return ""
         return f"https://www.google.com/s2/favicons?domain={host}&sz=64"
     except Exception:
         return ""
