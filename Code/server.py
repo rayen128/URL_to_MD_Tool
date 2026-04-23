@@ -26,6 +26,7 @@ CONCURRENCY = 3
 
 app = FastAPI()
 _executor = ThreadPoolExecutor(max_workers=CONCURRENCY)
+_semaphore = asyncio.Semaphore(CONCURRENCY)
 
 
 class ConvertRequest(BaseModel):
@@ -60,7 +61,7 @@ async def post_convert(body: ConvertRequest):
 
 
 async def _run_job(job: dict) -> None:
-    sem = asyncio.Semaphore(CONCURRENCY)
+    sem = _semaphore
     loop = asyncio.get_running_loop()
 
     async def process_item(item: dict) -> None:
@@ -189,14 +190,18 @@ async def stream_job(job_id: str, request: Request):
                     event["error"] = item["error"]
                 yield {"data": json.dumps(event)}
 
-        # Stream live updates; stay open for retry support
+        # Stream live updates; break on done so orphaned connections close
         while True:
             if await request.is_disconnected():
                 break
             try:
                 event = await asyncio.wait_for(store.get_event(job_id), timeout=15.0)
                 yield {"data": json.dumps(event)}
+                if event.get("type") == "done":
+                    break
             except asyncio.TimeoutError:
+                if await request.is_disconnected():
+                    break
                 yield {"comment": "keepalive"}
 
     return EventSourceResponse(generator())
@@ -230,15 +235,13 @@ async def retry_item(job_id: str, url_id: str):
         raise HTTPException(status_code=404, detail="Item not found")
     item["status"] = "queued"
     item["error"] = None
-    was_cancelled = job["cancelled"]
     loop = asyncio.get_running_loop()
-    sem = asyncio.Semaphore(CONCURRENCY)
+    sem = _semaphore
 
     async def _do_retry():
         job["cancelled"] = False
         async with sem:
-            if not was_cancelled:
-                await loop.run_in_executor(_executor, _convert_one_sync, job, item)
+            await loop.run_in_executor(_executor, _convert_one_sync, job, item)
         store.push_event(job_id, {"type": "done"})
 
     asyncio.create_task(_do_retry())

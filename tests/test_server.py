@@ -184,13 +184,15 @@ def test_retry_requeues_item_and_clears_cancelled(fresh_store):
     item["error"] = "Previous failure"
     job["cancelled"] = True
 
-    with TestClient(app) as client:
-        r = client.post(f"/api/jobs/{job['id']}/retry/{item['id']}")
+    with patch("server._convert_one_sync") as mock_convert:
+        with TestClient(app) as client:
+            r = client.post(f"/api/jobs/{job['id']}/retry/{item['id']}")
 
     assert r.status_code == 200
     assert item["status"] == "queued"
     assert item["error"] is None
     assert job["cancelled"] is False
+    mock_convert.assert_called_once_with(job, item)
 
 
 def test_retry_returns_404_for_unknown_job(fresh_store):
