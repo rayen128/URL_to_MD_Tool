@@ -205,3 +205,54 @@ def test_stream_returns_404_for_unknown_job(fresh_store):
     with TestClient(app) as client:
         r = client.get("/api/jobs/no-such/stream")
     assert r.status_code == 404
+
+
+def test_file_download_serves_done_file(fresh_store, tmp_path):
+    job = fresh_store.create(urls=["https://a.com"], fmt="pdf", name="", options={})
+    item = job["items"][0]
+    fake_file = tmp_path / "out.pdf"
+    fake_file.write_bytes(b"pdf content here")
+    item["status"] = "done"
+    item["file"] = str(fake_file)
+    item["filename"] = "out.pdf"
+
+    with TestClient(app) as client:
+        r = client.get(f"/api/files/{job['id']}/{item['id']}")
+
+    assert r.status_code == 200
+    assert r.content == b"pdf content here"
+
+
+def test_file_download_404_when_not_done(fresh_store):
+    job = fresh_store.create(urls=["https://a.com"], fmt="pdf", name="", options={})
+    with TestClient(app) as client:
+        r = client.get(f"/api/files/{job['id']}/u-0")
+    assert r.status_code == 404
+
+
+def test_zip_endpoint_returns_valid_zip(fresh_store, tmp_path):
+    job = fresh_store.create(
+        urls=["https://a.com", "https://b.com"], fmt="pdf", name="My Docs", options={}
+    )
+    for i, item in enumerate(job["items"]):
+        f = tmp_path / f"file{i}.pdf"
+        f.write_bytes(b"fake pdf")
+        item["status"] = "done"
+        item["file"] = str(f)
+        item["filename"] = f"file{i}.pdf"
+        item["size"] = 8
+
+    with TestClient(app) as client:
+        r = client.get(f"/api/jobs/{job['id']}/zip")
+
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "application/zip"
+    zf = zipfile.ZipFile(io.BytesIO(r.content))
+    assert len(zf.namelist()) == 2
+
+
+def test_zip_endpoint_404_when_no_done_files(fresh_store):
+    job = fresh_store.create(urls=["https://a.com"], fmt="pdf", name="", options={})
+    with TestClient(app) as client:
+        r = client.get(f"/api/jobs/{job['id']}/zip")
+    assert r.status_code == 404

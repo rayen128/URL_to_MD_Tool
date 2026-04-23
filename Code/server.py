@@ -248,6 +248,42 @@ async def retry_item(job_id: str, url_id: str):
     return {"ok": True}
 
 
+@app.get("/api/files/{job_id}/{url_id}")
+async def download_file(job_id: str, url_id: str):
+    job = store.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    item = next((i for i in job["items"] if i["id"] == url_id), None)
+    if item is None or item["status"] != "done" or not item["file"]:
+        raise HTTPException(status_code=404, detail="File not ready")
+    return FileResponse(
+        path=str(item["file"]),
+        filename=item["filename"],
+        media_type="application/octet-stream",
+    )
+
+
+@app.get("/api/jobs/{job_id}/zip")
+async def download_zip(job_id: str):
+    job = store.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    done = [i for i in job["items"] if i["status"] == "done" and i["file"]]
+    if not done:
+        raise HTTPException(status_code=404, detail="No completed files")
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for item in done:
+            zf.write(str(item["file"]), arcname=item["filename"])
+    buf.seek(0)
+    zip_name = (job["name"].replace(" ", "_") or "collection") + ".zip"
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{zip_name}"'},
+    )
+
+
 if WEB_DIR.exists():
     app.mount("/", StaticFiles(directory=str(WEB_DIR), html=True), name="static")
 
