@@ -151,3 +151,55 @@ def test_convert_one_sync_passes_options_correctly(fresh_store, tmp_path):
     assert captured["options"].block_images is True
     assert captured["options"].use_extension is False
     assert captured["include_images"] is False
+
+
+def test_cancel_sets_cancelled_flag(fresh_store):
+    job = fresh_store.create(urls=["https://a.com"], fmt="pdf", name="", options={})
+    with TestClient(app) as client:
+        r = client.post(f"/api/jobs/{job['id']}/cancel")
+    assert r.status_code == 200
+    assert job["cancelled"] is True
+
+
+def test_cancel_marks_queued_items_as_error(fresh_store):
+    job = fresh_store.create(
+        urls=["https://a.com", "https://b.com"], fmt="pdf", name="", options={}
+    )
+    with TestClient(app) as client:
+        client.post(f"/api/jobs/{job['id']}/cancel")
+    assert all(i["status"] == "error" for i in job["items"])
+    assert all(i["error"] == "Cancelled" for i in job["items"])
+
+
+def test_cancel_returns_404_for_unknown(fresh_store):
+    with TestClient(app) as client:
+        r = client.post("/api/jobs/no-such/cancel")
+    assert r.status_code == 404
+
+
+def test_retry_requeues_item_and_clears_cancelled(fresh_store):
+    job = fresh_store.create(urls=["https://a.com"], fmt="pdf", name="", options={})
+    item = job["items"][0]
+    item["status"] = "error"
+    item["error"] = "Previous failure"
+    job["cancelled"] = True
+
+    with TestClient(app) as client:
+        r = client.post(f"/api/jobs/{job['id']}/retry/{item['id']}")
+
+    assert r.status_code == 200
+    assert item["status"] == "queued"
+    assert item["error"] is None
+    assert job["cancelled"] is False
+
+
+def test_retry_returns_404_for_unknown_job(fresh_store):
+    with TestClient(app) as client:
+        r = client.post("/api/jobs/no-such/retry/u-0")
+    assert r.status_code == 404
+
+
+def test_stream_returns_404_for_unknown_job(fresh_store):
+    with TestClient(app) as client:
+        r = client.get("/api/jobs/no-such/stream")
+    assert r.status_code == 404

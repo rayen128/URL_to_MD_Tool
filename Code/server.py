@@ -164,6 +164,87 @@ async def delete_collection(job_id: str):
     return {"ok": True}
 
 
+@app.get("/api/jobs/{job_id}/stream")
+async def stream_job(job_id: str, request: Request):
+    job = store.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    async def generator():
+        # Replay current non-queued state for reconnects
+        for item in job["items"]:
+            if item["status"] != "queued":
+                event: dict = {
+                    "type": "status",
+                    "url_id": item["id"],
+                    "status": item["status"],
+                }
+                if item["status"] == "done":
+                    event.update({
+                        "title": item["title"],
+                        "size": item["size"],
+                        "filename": item["filename"],
+                    })
+                elif item["status"] == "error":
+                    event["error"] = item["error"]
+                yield {"data": json.dumps(event)}
+
+        # Stream live updates; stay open for retry support
+        while True:
+            if await request.is_disconnected():
+                break
+            try:
+                event = await asyncio.wait_for(store.get_event(job_id), timeout=15.0)
+                yield {"data": json.dumps(event)}
+            except asyncio.TimeoutError:
+                yield {"comment": "keepalive"}
+
+    return EventSourceResponse(generator())
+
+
+@app.post("/api/jobs/{job_id}/cancel")
+async def cancel_job(job_id: str):
+    job = store.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    job["cancelled"] = True
+    for item in job["items"]:
+        if item["status"] in ("queued", "working"):
+            item["status"] = "error"
+            item["error"] = "Cancelled"
+            store.push_event(job_id, {
+                "type": "status", "url_id": item["id"],
+                "status": "error", "error": "Cancelled",
+            })
+    store.push_event(job_id, {"type": "done"})
+    return {"ok": True}
+
+
+@app.post("/api/jobs/{job_id}/retry/{url_id}")
+async def retry_item(job_id: str, url_id: str):
+    job = store.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    item = next((i for i in job["items"] if i["id"] == url_id), None)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Item not found")
+    item["status"] = "queued"
+    item["error"] = None
+    was_cancelled = job["cancelled"]
+    loop = asyncio.get_running_loop()
+    sem = asyncio.Semaphore(CONCURRENCY)
+
+    async def _do_retry():
+        job["cancelled"] = False
+        async with sem:
+            if not was_cancelled:
+                await loop.run_in_executor(_executor, _convert_one_sync, job, item)
+        store.push_event(job_id, {"type": "done"})
+
+    asyncio.create_task(_do_retry())
+    return {"ok": True}
+
+
 if WEB_DIR.exists():
     app.mount("/", StaticFiles(directory=str(WEB_DIR), html=True), name="static")
 
