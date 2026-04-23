@@ -26,14 +26,6 @@ CONCURRENCY = 3
 
 app = FastAPI()
 _executor = ThreadPoolExecutor(max_workers=CONCURRENCY)
-_semaphore: asyncio.Semaphore | None = None
-
-
-def _get_semaphore() -> asyncio.Semaphore:
-    global _semaphore
-    if _semaphore is None:
-        _semaphore = asyncio.Semaphore(CONCURRENCY)
-    return _semaphore
 
 
 class ConvertRequest(BaseModel):
@@ -68,7 +60,7 @@ async def post_convert(body: ConvertRequest):
 
 
 async def _run_job(job: dict) -> None:
-    sem = _get_semaphore()
+    sem = asyncio.Semaphore(CONCURRENCY)
     loop = asyncio.get_running_loop()
 
     async def process_item(item: dict) -> None:
@@ -129,7 +121,7 @@ def _convert_one_sync(job: dict, item: dict) -> None:
                 save_markdown(page, out_path, include_images=include_images)
         item["status"] = "done"
         item["title"] = title
-        item["file"] = out_path
+        item["file"] = str(out_path)
         item["size"] = out_path.stat().st_size
         item["filename"] = stem + suffix
         store.push_event(job["id"], {
