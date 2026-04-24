@@ -63,7 +63,7 @@ function Converter({ collection, onCreateCollection, toast, settings, setSetting
     const sample = [
       "https://www.protinus.nl/over-ons",
       "https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=RDdQw4w9WgXcQ&start_radio=1",
-      "https://dailydoseofds.github.io/ai-engg-book/",
+      "https://www.dailydoseofds.com/p/10-must-use-slash-commands-in-claude-code/",
     ].join("\n");
     setText(sample);
     if (!name) setName("Research pack " + new Date().toLocaleDateString("en-GB", { day:"numeric", month:"short"}));
