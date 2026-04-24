@@ -62,7 +62,7 @@ function Converter({ collection, onCreateCollection, toast, settings, setSetting
   const loadSample = () => {
     const sample = [
       "https://www.protinus.nl/over-ons",
-      "https://www.youtube.com/",
+      "https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=RDdQw4w9WgXcQ&start_radio=1",
       "https://dailydoseofds.github.io/ai-engg-book/",
     ].join("\n");
     setText(sample);
