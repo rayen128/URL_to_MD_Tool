@@ -6,5 +6,6 @@ output/
 debug_*.png
 logs/
 .pytest_cache/
-_metadata/*
+_metadata
 docs*
+OVERVIEW.md
