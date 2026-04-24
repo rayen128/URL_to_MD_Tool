@@ -80,3 +80,11 @@ python Code/combine_pdfs.py output/My_Collection False my_output.pdf  # custom n
 ## Troubleshooting
 
 If a page fails to convert, a debug screenshot is saved in `logs/debug_screenshots/` with a timestamped, URL-based filename. Run with `--no-headless` to watch the browser in real time, or try `--freedium` for Medium.com articles.
+
+## Improving the converter with Claude Code
+
+This repository ships a Claude Code skill — **`fix-conversion-failures`** — that helps diagnose and fix URLs that fail to convert. If you use Claude Code, the skill activates automatically whenever a conversion fails or you describe a scraping problem. It reads the logs and debug screenshots, classifies the failure (paywall, cookie banner, timeout, content check too strict, …), and proposes a targeted fix before touching any file.
+
+To use it, open this repository in Claude Code and describe what's failing — or just paste a URL that doesn't work. Claude will take it from there.
+
+**If the skill leads you to a fix that improves scraping for a site others are likely to hit**, please fork the repository and open a pull request with the change. Fixes to `COOKIE_SELECTORS`, `_remove_paywalls()`, and the content-check thresholds in `Code/converter.py` are the most common improvements and are easy to review.
