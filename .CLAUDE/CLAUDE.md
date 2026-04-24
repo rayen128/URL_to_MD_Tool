@@ -28,6 +28,11 @@ python Code/combine_pdfs.py "output/My_Collection"
 python Code/combine_pdfs.py "output/My_Collection" True           # recursive
 python Code/combine_pdfs.py "output/My_Collection" False "out.pdf"  # custom name
 
+# Start web UI
+python Code/server.py
+# Opens http://localhost:8000 in the default browser
+# Ctrl+C to stop
+
 # Run all unit tests
 pytest tests/ -v
 
