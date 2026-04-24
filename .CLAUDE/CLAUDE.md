@@ -48,6 +48,7 @@ pytest tests/test_cli.py -v
 Code/
   cli.py                     # Entry point: argparse, batch loop, collection folders
   converter.py               # Playwright browser, paywall bypass, AMP fallback
+  rules.py                   # Content-validation constants and check functions (check_content)
   output.py                  # save_pdf() and save_markdown()
   combine_pdfs.py            # Standalone PDF merger (no dependency on other modules)
   remove_paywall_extension/  # Unpacked Chrome extension loaded by Playwright

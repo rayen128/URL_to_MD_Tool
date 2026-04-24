@@ -10,6 +10,8 @@ from urllib.parse import urlparse
 
 from playwright.sync_api import sync_playwright, Page, BrowserContext
 
+from rules import check_content
+
 logger = logging.getLogger("converter")
 
 # --- Constants ---
@@ -24,10 +26,6 @@ COOKIE_TIMEOUT_MS = 5_000
 SCROLL_STEP_PX = 2_000
 SCROLL_MAX_STEPS = 30
 SCROLL_PAUSE_MS = 500
-MIN_CONTENT_LENGTH = 10_000
-MIN_PARAGRAPH_COUNT = 5
-MIN_BODY_TEXT_LENGTH = 500
-
 COOKIE_SELECTORS = [
     "#onetrust-accept-btn-handler",
     "button:has-text('Accept all')",
@@ -60,20 +58,6 @@ def sanitize_filename(url: str) -> str:
     base = base.replace("/", "_")
     base = re.sub(r"[^a-zA-Z0-9._-]", "_", base)
     return base if base else "page"
-
-
-def check_content_sufficient(
-    page: Page,
-    min_length: int = MIN_CONTENT_LENGTH,
-    min_paragraphs: int = MIN_PARAGRAPH_COUNT,
-) -> bool:
-    content = page.content() or ""
-    paragraphs = page.locator(
-        "article p, section p, div[class*='article'] p").count()
-    if len(content) > min_length and paragraphs > min_paragraphs:
-        return True
-    body_text = page.evaluate("() => document.body.innerText.length")
-    return body_text > MIN_BODY_TEXT_LENGTH
 
 
 def _auto_scroll(page: Page, max_steps: int = SCROLL_MAX_STEPS) -> None:
@@ -168,6 +152,8 @@ def _try_load(
     is_medium: bool,
     use_extension: bool,
 ) -> tuple[bool, str | None]:
+    last_reason: str = "unknown error"
+
     try:
         page.goto(url, wait_until="domcontentloaded",
                   timeout=PAGE_LOAD_TIMEOUT_MS)
@@ -180,9 +166,12 @@ def _try_load(
         _auto_scroll(page)
         page.wait_for_timeout(3000)
         _remove_paywalls(page, is_medium)
-        if check_content_sufficient(page):
+        ok, reason = check_content(page)
+        if ok:
             return True, "normal"
+        last_reason = f"content check failed — {reason}"
     except Exception as e:
+        last_reason = f"page load error — {e}"
         logger.warning("Normal load failed for %s: %s", url, e)
 
     amp_url = _detect_amp_url(page)
@@ -202,12 +191,15 @@ def _try_load(
             _accept_cookies(page)
             _remove_paywalls(page)
             _auto_scroll(page, max_steps=15)
-            if check_content_sufficient(page, min_paragraphs=0):
+            ok, reason = check_content(page, min_paragraphs=0)
+            if ok:
                 return True, "amp"
+            last_reason = f"AMP fallback also failed — {reason}"
         except Exception as e:
+            last_reason = f"AMP fallback error — {e}"
             logger.warning("AMP fallback failed for %s: %s", url, e)
 
-    return False, None
+    return False, last_reason
 
 
 def _save_debug_screenshot(page, url: str) -> None:
@@ -289,14 +281,14 @@ def open_page(url: str, options: LoadOptions):
             page = context.pages[0] if context.pages else context.new_page()
             page.set_viewport_size({"width": 1920, "height": 1080})
 
-            success, mode = _try_load(page, context, url, is_medium, use_ext)
+            success, info = _try_load(page, context, url, is_medium, use_ext)
             if not success:
                 raise RuntimeError(
-                    "Could not load page content. "
+                    f"Could not load page content: {info}. "
                     "See logs/debug_screenshots/ for a screenshot. "
                     "Try --no-extension, --freedium, or --no-headless."
                 )
-            logger.debug("Loaded %s via %s mode", url, mode)
+            logger.debug("Loaded %s via %s mode", url, info)
         except Exception:
             _save_debug_screenshot(page, url)
             raise

@@ -1,7 +1,10 @@
 from pathlib import Path
+import logging
 
 import html2text
 from playwright.sync_api import Page
+
+logger = logging.getLogger("output")
 
 
 def save_pdf(page: Page, path: Path, page_size: str = "A4") -> None:
@@ -28,4 +31,11 @@ def save_markdown(page: Page, path: Path, include_images: bool = False) -> None:
     converter.ignore_links = False
     converter.ignore_images = not include_images
     converter.body_width = 0
-    path.write_text(converter.handle(article_html or "").strip(), encoding="utf-8")
+    text = converter.handle(article_html or "").strip()
+    if not text:
+        logger.warning(
+            "save_markdown produced empty output for %s — "
+            "no <article>, <main>, or <body> content found",
+            path.name,
+        )
+    path.write_text(text, encoding="utf-8")
