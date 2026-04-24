@@ -97,7 +97,7 @@ function CollectionCard({ collection, onOpen, onDelete, toast }) {
       </div>
 
       <div className="coll-card-foot" onClick={e => e.stopPropagation()}>
-        <button className="btn btn-primary" onClick={() => { toast(`Downloading "${collection.name}.zip"`); }}>
+        <button className="btn btn-primary" onClick={() => { window.location.href = `/api/jobs/${collection.id}/zip`; }}>
           <Icon.Download size={13}/> Download
         </button>
         <button className="btn btn-ghost" title="Delete" onClick={onDelete}

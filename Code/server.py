@@ -161,7 +161,9 @@ async def delete_collection(job_id: str):
         raise HTTPException(status_code=404, detail="Job not found")
     for item in job["items"]:
         if item["file"]:
-            Path(item["file"]).unlink(missing_ok=True)
+            p = Path(item["file"]).resolve()
+            if p.is_relative_to(OUTPUT_ROOT.resolve()):
+                p.unlink(missing_ok=True)
     return {"ok": True}
 
 
@@ -196,6 +198,8 @@ async def stream_job(job_id: str, request: Request):
                 break
             try:
                 event = await asyncio.wait_for(store.get_event(job_id), timeout=15.0)
+                if event is None:
+                    break
                 yield {"data": json.dumps(event)}
                 if event.get("type") == "done":
                     break
@@ -242,7 +246,8 @@ async def retry_item(job_id: str, url_id: str):
         job["cancelled"] = False
         async with sem:
             await loop.run_in_executor(_executor, _convert_one_sync, job, item)
-        store.push_event(job_id, {"type": "done"})
+        if not any(i["status"] in ("queued", "working") for i in job["items"]):
+            store.push_event(job_id, {"type": "done"})
 
     asyncio.create_task(_do_retry())
     return {"ok": True}
@@ -256,8 +261,11 @@ async def download_file(job_id: str, url_id: str):
     item = next((i for i in job["items"] if i["id"] == url_id), None)
     if item is None or item["status"] != "done" or not item["file"]:
         raise HTTPException(status_code=404, detail="File not ready")
+    p = Path(item["file"]).resolve()
+    if not p.is_relative_to(OUTPUT_ROOT.resolve()):
+        raise HTTPException(status_code=403, detail="Forbidden")
     return FileResponse(
-        path=str(item["file"]),
+        path=str(p),
         filename=item["filename"],
         media_type="application/octet-stream",
     )

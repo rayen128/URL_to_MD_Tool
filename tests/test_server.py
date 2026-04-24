@@ -207,7 +207,8 @@ def test_stream_returns_404_for_unknown_job(fresh_store):
     assert r.status_code == 404
 
 
-def test_file_download_serves_done_file(fresh_store, tmp_path):
+def test_file_download_serves_done_file(fresh_store, tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "OUTPUT_ROOT", tmp_path)
     job = fresh_store.create(urls=["https://a.com"], fmt="pdf", name="", options={})
     item = job["items"][0]
     fake_file = tmp_path / "out.pdf"
