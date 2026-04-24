@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from output import save_pdf, save_markdown
 
 
@@ -68,3 +68,13 @@ def test_save_markdown_includes_images_when_requested(tmp_path):
     out = tmp_path / "out.md"
     save_markdown(page, out, include_images=True)
     assert "photo.jpg" in out.read_text(encoding="utf-8")
+
+
+def test_save_markdown_warns_on_empty_content(tmp_path):
+    page = MagicMock()
+    page.evaluate.return_value = ""
+    out = tmp_path / "empty.md"
+    with patch("output.logger") as mock_logger:
+        save_markdown(page, out)
+    mock_logger.warning.assert_called_once()
+    assert out.exists()
