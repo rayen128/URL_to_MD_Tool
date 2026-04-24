@@ -10,7 +10,14 @@ function Converter({ collection, onCreateCollection, toast, settings, setSetting
   const [isDone, setIsDone] = useState(false);
   const [jobId, setJobId] = useState(null);
   const esRef = useRef(null);
-  const { titleFor, domainFor, faviconFor, fmtSize } = window.ProtinusData;
+
+  useEffect(() => {
+    return () => {
+      if (esRef.current) { esRef.current.close(); esRef.current = null; }
+    };
+  }, []);
+
+  const { titleFor } = window.ProtinusData;
 
   // Parse textarea into valid URL lines (ignore empty; also strip duplicates)
   const parsedUrls = useMemo(() => {
@@ -120,9 +127,16 @@ function Converter({ collection, onCreateCollection, toast, settings, setSetting
         if (data.type === 'done') {
           setIsRunning(false);
           setIsDone(true);
+          if (esRef.current) { esRef.current.close(); esRef.current = null; }
         }
       };
-      es.onerror = () => { setIsRunning(false); };
+      es.onerror = () => {
+        setIsRunning(false);
+        setIsDone(true);
+        setItems(curr => curr.map(i =>
+          i.status === 'working' ? { ...i, status: 'error', error: 'Connection lost' } : i
+        ));
+      };
     } catch (err) {
       setIsRunning(false);
       toast('Conversion failed: ' + err.message);
@@ -155,8 +169,18 @@ function Converter({ collection, onCreateCollection, toast, settings, setSetting
         }
         if (data.type === 'done') { setIsRunning(false); setIsDone(true); }
       };
+      es.onerror = () => {
+        setIsRunning(false);
+        setIsDone(true);
+      };
     }
-    await fetch(`/api/jobs/${jobId}/retry/${id}`, { method: 'POST' }).catch(() => {});
+    await fetch(`/api/jobs/${jobId}/retry/${id}`, { method: 'POST' })
+      .catch(() => {
+        setItems(curr => curr.map(i =>
+          i.id === id ? { ...i, status: 'error', error: 'Retry request failed' } : i
+        ));
+        setIsRunning(false);
+      });
   };
 
   const removeItem = (id) => setItems(curr => curr.filter(i => i.id !== id));
