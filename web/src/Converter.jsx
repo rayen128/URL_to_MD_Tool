@@ -172,6 +172,9 @@ function Converter({ collection, onCreateCollection, toast, settings, setSetting
       es.onerror = () => {
         setIsRunning(false);
         setIsDone(true);
+        setItems(curr => curr.map(i =>
+          i.id === id && i.status === 'working' ? { ...i, status: 'error', error: 'Connection lost' } : i
+        ));
       };
     }
     await fetch(`/api/jobs/${jobId}/retry/${id}`, { method: 'POST' })
