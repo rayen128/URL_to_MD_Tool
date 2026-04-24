@@ -39,7 +39,7 @@ def test_check_paragraph_count_respects_custom_min():
     page = MagicMock()
     page.locator.return_value.count.return_value = 0
     ok, reason = _check_paragraph_count(page, min_paragraphs=0)
-    assert ok is False  # 0 > 0 is False, so falls through to body text
+    assert ok is False  # 0 > 0 is False; custom min_paragraphs=0 still fails on zero paragraphs
 
 
 def test_check_body_text_passes():
@@ -86,7 +86,9 @@ def test_check_content_fails_with_combined_reasons():
     ok, reason = check_content(page)
     assert ok is False
     assert reason is not None
-    assert "100" in reason
+    assert "; " in reason  # multiple failure reasons are joined
+    assert "too few article paragraphs" in reason
+    assert "body text too short" in reason
 
 
 def test_check_content_reason_mentions_body_text_count():
