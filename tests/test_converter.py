@@ -1,5 +1,5 @@
 from unittest.mock import MagicMock
-from converter import sanitize_filename, check_content_sufficient, LoadOptions
+from converter import sanitize_filename, LoadOptions
 
 
 def test_sanitize_filename_basic():
@@ -26,24 +26,3 @@ def test_load_options_defaults():
     assert opts.use_freedium is False
 
 
-def test_check_content_sufficient_passes_on_long_html():
-    page = MagicMock()
-    page.content.return_value = "x" * 15000
-    page.locator.return_value.count.return_value = 10
-    assert check_content_sufficient(page) is True
-
-
-def test_check_content_sufficient_falls_back_to_body_text():
-    page = MagicMock()
-    page.content.return_value = "x" * 100
-    page.locator.return_value.count.return_value = 2
-    page.evaluate.return_value = 3000  # body innerText.length > 2000
-    assert check_content_sufficient(page) is True
-
-
-def test_check_content_sufficient_fails_on_sparse_page():
-    page = MagicMock()
-    page.content.return_value = "x" * 100
-    page.locator.return_value.count.return_value = 2
-    page.evaluate.return_value = 100
-    assert check_content_sufficient(page) is False
