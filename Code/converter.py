@@ -1,3 +1,4 @@
+import logging
 import re
 import shutil
 from contextlib import contextmanager
@@ -6,6 +7,8 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from playwright.sync_api import sync_playwright, Page, BrowserContext
+
+logger = logging.getLogger("converter")
 
 # --- Constants ---
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Safari/537.36"
@@ -142,7 +145,7 @@ def _enable_extension(context: BrowserContext, page: Page) -> None:
             page.wait_for_load_state("networkidle", timeout=NETWORK_IDLE_TIMEOUT_MS)
             return
         except Exception as e:
-            print(f"  Extension attempt {attempt + 1}/3 failed: {e}")
+            logger.warning("Extension attempt %d/3 failed: %s", attempt + 1, e)
             page.wait_for_timeout(2000)
 
 
@@ -166,7 +169,7 @@ def _try_load(
         if check_content_sufficient(page):
             return True, "normal"
     except Exception as e:
-        print(f"  Normal load failed: {e}")
+        logger.warning("Normal load failed for %s: %s", url, e)
 
     amp_url = _detect_amp_url(page)
     if not amp_url:
@@ -188,7 +191,7 @@ def _try_load(
             if check_content_sufficient(page, min_paragraphs=3):
                 return True, "amp"
         except Exception as e:
-            print(f"  AMP fallback failed: {e}")
+            logger.warning("AMP fallback failed for %s: %s", url, e)
 
     return False, None
 
@@ -202,7 +205,7 @@ def open_page(url: str, options: LoadOptions):
     """
     if options.use_freedium:
         url = f"https://freedium.cfd/{url}"
-        print("  Using Freedium proxy.")
+        logger.info("Using Freedium proxy for %s", url)
 
     is_medium = "medium.com" in urlparse(url).netloc
     parsed = urlparse(url)
@@ -252,12 +255,14 @@ def open_page(url: str, options: LoadOptions):
 
         success, mode = _try_load(page, context, url, is_medium, use_ext)
         if not success:
-            page.screenshot(path=str(Path(__file__).parent.parent / "debug_failed_load.png"))
+            screenshot = Path(__file__).parent.parent / "debug_failed_load.png"
+            page.screenshot(path=str(screenshot))
+            logger.error("Could not load page content for %s — screenshot saved to %s", url, screenshot)
             raise RuntimeError(
                 "Could not load page content. Screenshot saved to debug_failed_load.png. "
                 "Try --no-extension, --freedium, or --no-headless."
             )
-        print(f"  Loaded via {mode} mode.")
+        logger.debug("Loaded %s via %s mode", url, mode)
         yield page
     finally:
         if context:

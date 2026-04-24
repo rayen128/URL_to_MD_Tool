@@ -4,4 +4,7 @@ __pycache__/
 playwright-user-data/
 output/
 debug_*.png
+logs/
 .pytest_cache/
+_metadata/*
+docs*

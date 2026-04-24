@@ -5,8 +5,10 @@ sys.path.insert(0, str(Path(__file__).parent))
 import asyncio
 import io
 import json
+import logging
 import webbrowser
 import zipfile
+from logging.handlers import RotatingFileHandler
 from concurrent.futures import ThreadPoolExecutor
 
 import uvicorn
@@ -22,7 +24,21 @@ from jobs import store
 
 WEB_DIR = Path(__file__).parent.parent / "web"
 OUTPUT_ROOT = Path(__file__).parent.parent / "output"
+LOG_DIR = Path(__file__).parent.parent / "logs"
 CONCURRENCY = 3
+
+LOG_DIR.mkdir(exist_ok=True)
+_log_fmt = logging.Formatter("%(asctime)s %(levelname)-8s %(name)s — %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+_file_handler = RotatingFileHandler(LOG_DIR / "server.log", maxBytes=5_000_000, backupCount=3, encoding="utf-8")
+_file_handler.setFormatter(_log_fmt)
+_stream_handler = logging.StreamHandler()
+_stream_handler.setFormatter(_log_fmt)
+
+logging.basicConfig(level=logging.INFO, handlers=[_file_handler, _stream_handler])
+logging.getLogger("uvicorn.access").handlers = [_file_handler, _stream_handler]
+logging.getLogger("uvicorn.access").propagate = False
+
+logger = logging.getLogger("server")
 
 app = FastAPI()
 _executor = ThreadPoolExecutor(max_workers=CONCURRENCY)
@@ -44,6 +60,8 @@ async def post_convert(body: ConvertRequest):
         name=body.collection,
         options=body.options,
     )
+    logger.info("Job %s started — %d URL(s), format=%s, collection=%r",
+                job["id"], len(body.urls), body.format, body.collection or "(none)")
     asyncio.create_task(_run_job(job))
     return {
         "job_id": job["id"],
@@ -76,10 +94,16 @@ async def _run_job(job: dict) -> None:
                 return
             await loop.run_in_executor(_executor, _convert_one_sync, job, item)
 
-    await asyncio.gather(
+    results = await asyncio.gather(
         *[process_item(item) for item in job["items"]],
         return_exceptions=True,
     )
+    for exc in results:
+        if isinstance(exc, Exception):
+            logger.error("Unexpected error in job %s worker", job["id"], exc_info=exc)
+    done = sum(1 for i in job["items"] if i["status"] == "done")
+    errors = sum(1 for i in job["items"] if i["status"] == "error")
+    logger.info("Job %s finished — %d done, %d error(s)", job["id"], done, errors)
     store.push_event(job["id"], {"type": "done"})
 
 
@@ -94,6 +118,7 @@ def _convert_one_sync(job: dict, item: dict) -> None:
         return
 
     item["status"] = "working"
+    logger.info("[%s] Converting %s", job["id"], item["url"])
     store.push_event(job["id"], {"type": "status", "url_id": item["id"], "status": "working"})
 
     opts = job["options"]
@@ -125,6 +150,8 @@ def _convert_one_sync(job: dict, item: dict) -> None:
         item["file"] = str(out_path)
         item["size"] = out_path.stat().st_size
         item["filename"] = stem + suffix
+        logger.info("[%s] Done: %s → %s (%.1f KB)",
+                    job["id"], item["url"], item["filename"], item["size"] / 1024)
         store.push_event(job["id"], {
             "type": "status", "url_id": item["id"], "status": "done",
             "title": title, "size": item["size"], "filename": item["filename"],
@@ -132,6 +159,7 @@ def _convert_one_sync(job: dict, item: dict) -> None:
     except Exception as e:
         item["status"] = "error"
         item["error"] = str(e)
+        logger.error("[%s] Failed: %s — %s", job["id"], item["url"], e, exc_info=True)
         store.push_event(job["id"], {
             "type": "status", "url_id": item["id"],
             "status": "error", "error": str(e),
