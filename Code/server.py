@@ -28,11 +28,44 @@ LOG_DIR = Path(__file__).parent.parent / "logs"
 CONCURRENCY = 3
 
 LOG_DIR.mkdir(exist_ok=True)
-_log_fmt = logging.Formatter("%(asctime)s %(levelname)-8s %(name)s — %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+
+
+class _Formatter(logging.Formatter):
+    """Single-line for INFO/WARNING; bordered block with full traceback for ERROR+."""
+    _RULE = "─" * 80
+    _NORMAL = logging.Formatter(
+        "%(asctime)s %(levelname)-8s %(name)s — %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+    def format(self, record: logging.LogRecord) -> str:
+        if record.levelno < logging.ERROR:
+            return self._NORMAL.format(record)
+
+        timestamp = self.formatTime(record, "%Y-%m-%d %H:%M:%S")
+        parts = [
+            "",
+            self._RULE,
+            f"  {record.levelname}  {timestamp}  [{record.name}]",
+            self._RULE,
+            "",
+            f"  {record.getMessage()}",
+        ]
+        if record.exc_info:
+            if not record.exc_text:
+                record.exc_text = self.formatException(record.exc_info)
+            parts.append("")
+            for line in record.exc_text.splitlines():
+                parts.append(f"  {line}")
+        parts += ["", self._RULE, ""]
+        return "\n".join(parts)
+
+
+_fmt = _Formatter()
 _file_handler = RotatingFileHandler(LOG_DIR / "server.log", maxBytes=5_000_000, backupCount=3, encoding="utf-8")
-_file_handler.setFormatter(_log_fmt)
+_file_handler.setFormatter(_fmt)
 _stream_handler = logging.StreamHandler()
-_stream_handler.setFormatter(_log_fmt)
+_stream_handler.setFormatter(_fmt)
 
 logging.basicConfig(level=logging.INFO, handlers=[_file_handler, _stream_handler])
 logging.getLogger("uvicorn.access").handlers = [_file_handler, _stream_handler]
