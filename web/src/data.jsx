@@ -1,4 +1,4 @@
-// Fake backend helpers + seed data
+// Browser-side URL display helpers
 
 const DOMAIN_NICE = {
   "nu.nl": "NU.nl",
