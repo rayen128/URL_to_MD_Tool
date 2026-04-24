@@ -276,7 +276,8 @@ async def download_zip(job_id: str):
         for item in done:
             zf.write(str(item["file"]), arcname=item["filename"])
     buf.seek(0)
-    zip_name = (job["name"].replace(" ", "_") or "collection") + ".zip"
+    raw_name = (job["name"].replace(" ", "_") or "collection") + ".zip"
+    zip_name = raw_name.replace('"', "").replace("\\", "")
     return StreamingResponse(
         buf,
         media_type="application/zip",
