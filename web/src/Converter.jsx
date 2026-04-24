@@ -2,7 +2,7 @@ const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
 function Converter({ collection, onCreateCollection, toast, settings, setSettings }) {
   const [text, setText] = useState("");
-  const [format, setFormat] = useState("pdf"); // 'pdf' | 'markdown'
+  const [format, setFormat] = useState("markdown"); // 'pdf' | 'markdown'
   const [name, setName] = useState("");
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [items, setItems] = useState([]); // {id, url, title, domain, status, size, error}
@@ -62,12 +62,8 @@ function Converter({ collection, onCreateCollection, toast, settings, setSetting
   const loadSample = () => {
     const sample = [
       "https://www.protinus.nl/over-ons",
-      "https://www.rijksoverheid.nl/onderwerpen/europese-aanbestedingen",
-      "https://www.computable.nl/artikel/nieuws/cloud",
-      "https://www.tweakers.net/reviews/enterprise-hardware",
-      "https://fd.nl/bedrijfsleven/tech",
-      "https://www.pianoo.nl/nl/regelgeving/aanbestedingswet",
-      "https://broken.example.invalid/page",
+      "https://www.youtube.com/",
+      "https://dailydoseofds.github.io/ai-engg-book/",
     ].join("\n");
     setText(sample);
     if (!name) setName("Research pack " + new Date().toLocaleDateString("en-GB", { day:"numeric", month:"short"}));
@@ -269,13 +265,13 @@ function Converter({ collection, onCreateCollection, toast, settings, setSetting
             <div className="field">
               <label className="field-label">Output format</label>
               <div className="segmented">
-                <button className={format === "pdf" ? "on" : ""} onClick={() => setFormat("pdf")}>
-                  <Icon.FilePdf size={14}/> PDF
-                  {format === "pdf" && <span className="chev">.pdf</span>}
-                </button>
                 <button className={format === "markdown" ? "on" : ""} onClick={() => setFormat("markdown")}>
                   <Icon.FileText size={14}/> Markdown
                   {format === "markdown" && <span className="chev">.md</span>}
+                </button>
+                <button className={format === "pdf" ? "on" : ""} onClick={() => setFormat("pdf")}>
+                  <Icon.FilePdf size={14}/> PDF
+                  {format === "pdf" && <span className="chev">.pdf</span>}
                 </button>
               </div>
             </div>

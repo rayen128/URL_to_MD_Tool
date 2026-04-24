@@ -80,6 +80,9 @@ Standalone script. Scans a directory for `.pdf` files, sorts by filename, merges
 
 ## Non-obvious implementation notes
 
+- **`open_page` uses a unique `user_data_dir` per call** (`playwright-user-data/<uuid>/`) — Chromium's `launch_persistent_context` only allows one instance per directory, so a shared path causes `TargetClosedError` under concurrent load. The `finally` block cleans up each subdirectory via `shutil.rmtree`.
+- **Startup cleanup on Windows/OneDrive: use `.iterdir()` + `.unlink()`, not `shutil.rmtree()`** — `rmtree` on a directory inside an OneDrive-synced path raises `PermissionError: [WinError 5]`. Delete files individually and leave the directory in place.
+- **Startup side effects are guarded by `sys._server_logs_cleared`** — `server.py` is imported twice (once as `__main__`, once by uvicorn). This flag ensures log-clearing and directory-wiping run only once per process.
 - **`sanitize_filename` returns a stem, not a full filename** — no `.pdf`/`.md` suffix. The suffix is added in `cli.py:resolve_output_path`. Don't add it inside `sanitize_filename`.
 - **All paths in `converter.py` are `Path(__file__).parent.parent`-relative** (project root), not `Path.cwd()`-relative. This matters when the tool is run from a different working directory.
 - **`open_page` cleanup is exception-safe** — `context.close()` and `playwright.stop()` are each wrapped in independent try/except blocks so a browser crash doesn't leak the Playwright process.

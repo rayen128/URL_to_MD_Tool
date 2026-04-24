@@ -1,8 +1,10 @@
 import logging
 import re
 import shutil
+import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -14,6 +16,8 @@ logger = logging.getLogger("converter")
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Safari/537.36"
 EXTENSION_ID = "ghkdkllgoehcklnpajjjmfoaokabfdfm"
 EXTENSION_PATH = Path(__file__).parent / "remove_paywall_extension"
+DEBUG_SCREENSHOTS_DIR = Path(__file__).parent.parent / \
+    "logs" / "debug_screenshots"
 PAGE_LOAD_TIMEOUT_MS = 90_000
 NETWORK_IDLE_TIMEOUT_MS = 30_000
 COOKIE_TIMEOUT_MS = 5_000
@@ -33,6 +37,11 @@ COOKIE_SELECTORS = [
     "button:has-text('Agree')",
     "button:has-text('Allow all')",
     "[data-testid='cookie-accept-all']",
+    "button:has-text('Alles accepteren')",
+    "button:has-text('Accepteren')",
+    "button:has-text('Ik accepteer')",
+    "button:has-text('Akkoord')",
+    "button:has-text('Alle cookies accepteren')",
 ]
 
 
@@ -50,7 +59,7 @@ def sanitize_filename(url: str) -> str:
     base = f"{parsed.netloc}_{path}" if path else parsed.netloc
     base = base.replace("/", "_")
     base = re.sub(r"[^a-zA-Z0-9._-]", "_", base)
-    return base[:120] if base else "page"
+    return base if base else "page"
 
 
 def check_content_sufficient(
@@ -59,7 +68,8 @@ def check_content_sufficient(
     min_paragraphs: int = MIN_PARAGRAPH_COUNT,
 ) -> bool:
     content = page.content() or ""
-    paragraphs = page.locator("article p, section p, div[class*='article'] p").count()
+    paragraphs = page.locator(
+        "article p, section p, div[class*='article'] p").count()
     if len(content) > min_length and paragraphs > min_paragraphs:
         return True
     body_text = page.evaluate("() => document.body.innerText.length")
@@ -133,7 +143,8 @@ def _enable_extension(context: BrowserContext, page: Page) -> None:
         try:
             popup = context.new_page()
             try:
-                popup.goto(f"chrome-extension://{EXTENSION_ID}/popup.html", timeout=10_000)
+                popup.goto(
+                    f"chrome-extension://{EXTENSION_ID}/popup.html", timeout=10_000)
                 btn = popup.locator("button, [role='button']")
                 if btn.is_visible(timeout=0):
                     btn.first.click()
@@ -142,7 +153,8 @@ def _enable_extension(context: BrowserContext, page: Page) -> None:
                     popup.close()
                 except Exception:
                     pass
-            page.wait_for_load_state("networkidle", timeout=NETWORK_IDLE_TIMEOUT_MS)
+            page.wait_for_load_state(
+                "networkidle", timeout=NETWORK_IDLE_TIMEOUT_MS)
             return
         except Exception as e:
             logger.warning("Extension attempt %d/3 failed: %s", attempt + 1, e)
@@ -157,8 +169,10 @@ def _try_load(
     use_extension: bool,
 ) -> tuple[bool, str | None]:
     try:
-        page.goto(url, wait_until="domcontentloaded", timeout=PAGE_LOAD_TIMEOUT_MS)
-        page.wait_for_load_state("networkidle", timeout=NETWORK_IDLE_TIMEOUT_MS)
+        page.goto(url, wait_until="domcontentloaded",
+                  timeout=PAGE_LOAD_TIMEOUT_MS)
+        page.wait_for_load_state(
+            "networkidle", timeout=NETWORK_IDLE_TIMEOUT_MS)
         _accept_cookies(page)
         if use_extension:
             _enable_extension(context, page)
@@ -188,12 +202,29 @@ def _try_load(
             _accept_cookies(page)
             _remove_paywalls(page)
             _auto_scroll(page, max_steps=15)
-            if check_content_sufficient(page, min_paragraphs=3):
+            if check_content_sufficient(page, min_paragraphs=0):
                 return True, "amp"
         except Exception as e:
             logger.warning("AMP fallback failed for %s: %s", url, e)
 
     return False, None
+
+
+def _save_debug_screenshot(page, url: str) -> None:
+    DEBUG_SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    filename = f"{ts}_{sanitize_filename(url)}.png"
+    if page is None:
+        logger.error(
+            "Load failed for %s — browser did not launch, no screenshot available", url)
+        return
+    try:
+        page.screenshot(path=str(DEBUG_SCREENSHOTS_DIR / filename))
+        logger.error(
+            "Load failed for %s — screenshot: logs/debug_screenshots/%s", url, filename)
+    except Exception as exc:
+        logger.error(
+            "Load failed for %s — screenshot attempt failed: %s", url, exc)
 
 
 @contextmanager
@@ -211,8 +242,9 @@ def open_page(url: str, options: LoadOptions):
     parsed = urlparse(url)
     referer = f"{parsed.scheme}://{parsed.netloc}/"
 
-    user_data_dir = Path(__file__).parent.parent / "playwright-user-data"
-    user_data_dir.mkdir(exist_ok=True)
+    user_data_dir = Path(__file__).parent.parent / \
+        "playwright-user-data" / uuid.uuid4().hex
+    user_data_dir.mkdir(parents=True, exist_ok=True)
 
     launch_args = [
         "--disable-blink-features=AutomationControlled",
@@ -229,40 +261,46 @@ def open_page(url: str, options: LoadOptions):
 
     playwright = sync_playwright().start()
     context = None
+    page = None
     try:
-        context = playwright.chromium.launch_persistent_context(
-            str(user_data_dir),
-            channel="chromium",
-            headless=options.headless,
-            args=launch_args,
-            user_agent=USER_AGENT,
-            locale="en-US",
-            extra_http_headers={"Referer": referer},
-            ignore_https_errors=True,
-        )
-        block_types = ["font", "media"]
-        if options.block_images:
-            block_types.append("image")
-        context.route(
-            "**/*",
-            lambda route: route.abort()
-            if route.request.resource_type in block_types
-            else route.continue_(),
-        )
-
-        page = context.pages[0] if context.pages else context.new_page()
-        page.set_viewport_size({"width": 1920, "height": 1080})
-
-        success, mode = _try_load(page, context, url, is_medium, use_ext)
-        if not success:
-            screenshot = Path(__file__).parent.parent / "debug_failed_load.png"
-            page.screenshot(path=str(screenshot))
-            logger.error("Could not load page content for %s — screenshot saved to %s", url, screenshot)
-            raise RuntimeError(
-                "Could not load page content. Screenshot saved to debug_failed_load.png. "
-                "Try --no-extension, --freedium, or --no-headless."
+        # Inner try/except covers only the load phase so that exceptions from
+        # the caller (save_pdf / save_markdown) after yield do not trigger screenshots.
+        try:
+            context = playwright.chromium.launch_persistent_context(
+                str(user_data_dir),
+                channel="chromium",
+                headless=options.headless,
+                args=launch_args,
+                user_agent=USER_AGENT,
+                locale="en-US",
+                extra_http_headers={"Referer": referer},
+                ignore_https_errors=True,
             )
-        logger.debug("Loaded %s via %s mode", url, mode)
+            block_types = ["font", "media"]
+            if options.block_images:
+                block_types.append("image")
+            context.route(
+                "**/*",
+                lambda route: route.abort()
+                if route.request.resource_type in block_types
+                else route.continue_(),
+            )
+
+            page = context.pages[0] if context.pages else context.new_page()
+            page.set_viewport_size({"width": 1920, "height": 1080})
+
+            success, mode = _try_load(page, context, url, is_medium, use_ext)
+            if not success:
+                raise RuntimeError(
+                    "Could not load page content. "
+                    "See logs/debug_screenshots/ for a screenshot. "
+                    "Try --no-extension, --freedium, or --no-headless."
+                )
+            logger.debug("Loaded %s via %s mode", url, mode)
+        except Exception:
+            _save_debug_screenshot(page, url)
+            raise
+
         yield page
     finally:
         if context:

@@ -11,7 +11,15 @@ pip install -r requirements.txt
 playwright install chromium
 ```
 
-## Quick start
+## Web UI
+
+```bash
+python Code/server.py
+```
+
+Opens `http://localhost:8000` in your browser. Paste URLs, choose a format, optionally name the collection, and convert. Logs are written to `logs/server.log` and `logs/jobs.log`; both are cleared on each restart.
+
+## Quick start (CLI)
 
 ```bash
 # Single URL → PDF (default)
@@ -71,4 +79,4 @@ python Code/combine_pdfs.py output/My_Collection False my_output.pdf  # custom n
 
 ## Troubleshooting
 
-If a page fails to convert, two debug screenshots are saved in the project root: `debug_failed_load.png` and `debug_final.png`. Run with `--no-headless` to watch the browser in real time, or try `--freedium` for Medium.com articles.
+If a page fails to convert, a debug screenshot is saved in `logs/debug_screenshots/` with a timestamped, URL-based filename. Run with `--no-headless` to watch the browser in real time, or try `--freedium` for Medium.com articles.
