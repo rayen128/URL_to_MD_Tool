@@ -1,0 +1,12 @@
+from urllib.parse import urlparse
+
+
+def normalize_url(url: str) -> str:
+    url = url.strip()
+    if url.startswith("//"):
+        url = "https:" + url
+    elif "://" not in url:
+        url = "https://" + url
+    if not urlparse(url).netloc:
+        raise ValueError(f"Cannot normalize to a valid URL: {url!r}")
+    return url
