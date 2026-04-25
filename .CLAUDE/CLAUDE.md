@@ -49,12 +49,13 @@ Code/
   cli.py                     # Entry point: argparse, batch loop, collection folders
   helpers.py                 # normalize_url(): shared URL normalization for cli.py and server.py
   converter.py               # Playwright browser, paywall bypass, AMP fallback
-  rules.py                   # Content-validation constants and check functions (check_content)
+  rules.py                   # Content-validation (check_content) + site detection (SiteHeuristics, website_heuristics)
   output.py                  # save_pdf() and save_markdown()
   combine_pdfs.py            # Standalone PDF merger (no dependency on other modules)
   remove_paywall_extension/  # Unpacked Chrome extension loaded by Playwright
 output/                      # Default output root; subfolders created by --collection
 tests/                       # pytest unit tests — no real browser required
+web/                         # Frontend: index.html + src/*.jsx (Babel standalone, no build step)
 ```
 
 ### `cli.py` — orchestrator
@@ -66,7 +67,7 @@ Parses arguments, calls `normalize_url()` from `helpers.py` then `resolve_output
 Exposes `open_page(url, LoadOptions)` as a `@contextmanager`. Internally:
 1. Launches a persistent Chromium context with anti-bot flags and the optional Chrome extension.
 2. Loads the page (`domcontentloaded` → `networkidle`), runs cookie acceptance, extension activation, JS paywall removal, and auto-scroll.
-3. Falls back to the AMP version if `check_content_sufficient()` fails.
+3. Falls back to the AMP version if `check_content()` fails.
 4. Yields the ready `Page`; cleans up the browser and `playwright-user-data/` directory on exit.
 
 All tunable values (timeouts, scroll settings, User-Agent, extension ID) are module-level constants at the top of the file.
@@ -85,7 +86,9 @@ Standalone script. Scans a directory for `.pdf` files, sorts by filename, merges
 - **`open_page` uses a unique `user_data_dir` per call** (`playwright-user-data/<uuid>/`) — Chromium's `launch_persistent_context` only allows one instance per directory, so a shared path causes `TargetClosedError` under concurrent load. The `finally` block cleans up each subdirectory via `shutil.rmtree`.
 - **Startup cleanup on Windows/OneDrive: use `.iterdir()` + `.unlink()`, not `shutil.rmtree()`** — `rmtree` on a directory inside an OneDrive-synced path raises `PermissionError: [WinError 5]`. Delete files individually and leave the directory in place.
 - **Startup side effects are guarded by `sys._server_logs_cleared`** — `server.py` is imported twice (once as `__main__`, once by uvicorn). This flag ensures log-clearing and directory-wiping run only once per process.
-- **`sanitize_filename` returns a stem, not a full filename** — no `.pdf`/`.md` suffix. The suffix is added in `cli.py:resolve_output_path`. Don't add it inside `sanitize_filename`.
+- **`sanitize_filename` returns a stem, not a full filename** — no `.pdf`/`.md` suffix. The suffix is added in `cli.py:resolve_output_path`. Don't add it inside `sanitize_filename`. Stems are truncated at 120 characters.
+- **Incomplete URLs are accepted and normalized** — `normalize_url()` in `helpers.py` prepends `https://` to scheme-less inputs (`www.youtube.com` → `https://www.youtube.com`). Both `cli.py` and `server.py` call this before any processing. The hostname must contain a dot; single-label inputs (`hello`) raise `ValueError`.
+- **Frontend JSX files use manual cache-busting** — `web/index.html` loads each `.jsx` with a `?v=N` query string. Bump the version for any modified file to force browser cache invalidation.
 - **All paths in `converter.py` are `Path(__file__).parent.parent`-relative** (project root), not `Path.cwd()`-relative. This matters when the tool is run from a different working directory.
 - **`open_page` cleanup is exception-safe** — `context.close()` and `playwright.stop()` are each wrapped in independent try/except blocks so a browser crash doesn't leak the Playwright process.
 - **Tests use mocked Playwright pages** — no real browser required. `tests/conftest.py` adds `Code/` to `sys.path` so test files can import `from converter import ...` directly.
