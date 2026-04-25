@@ -129,3 +129,8 @@ def test_site_heuristics_defaults_to_false():
 def test_website_heuristics_domain_containing_medium_string_is_not_medium():
     h = website_heuristics("https://notmedium.com/article")
     assert h.is_medium is False
+
+
+def test_website_heuristics_freedium_proxy_is_not_medium():
+    h = website_heuristics("https://freedium.cfd/https://medium.com/article")
+    assert h.is_medium is False
