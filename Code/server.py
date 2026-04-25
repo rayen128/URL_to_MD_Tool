@@ -21,6 +21,7 @@ from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from converter import LoadOptions, open_page, sanitize_filename
+from helpers import normalize_url
 from output import save_pdf, save_markdown
 from jobs import store
 
@@ -204,8 +205,20 @@ def _convert_one_sync(job: dict, item: dict) -> None:
         })
         return
 
+    try:
+        url = normalize_url(item["url"])
+    except ValueError as e:
+        item["status"] = "error"
+        item["error"] = str(e)
+        logger.error("[%s] Invalid URL: %s — %s", job["id"], item["url"], e)
+        store.push_event(job["id"], {
+            "type": "status", "url_id": item["id"],
+            "status": "error", "error": str(e),
+        })
+        return
+
     item["status"] = "working"
-    logger.info("[%s] Converting %s", job["id"], item["url"])
+    logger.info("[%s] Converting %s", job["id"], url)
     store.push_event(job["id"], {"type": "status",
                      "url_id": item["id"], "status": "working"})
 
@@ -222,12 +235,12 @@ def _convert_one_sync(job: dict, item: dict) -> None:
     coll = job["name"].replace(" ", "_") if job["name"] else None
     out_dir = OUTPUT_ROOT / coll if coll else OUTPUT_ROOT
     out_dir.mkdir(parents=True, exist_ok=True)
-    stem = sanitize_filename(item["url"])
+    stem = sanitize_filename(url)
     suffix = ".pdf" if fmt == "pdf" else ".md"
     out_path = out_dir / (stem + suffix)
 
     try:
-        with open_page(item["url"], options) as page:
+        with open_page(url, options) as page:
             title = page.title() or stem
             if fmt == "pdf":
                 save_pdf(page, out_path, page_size=page_size)
@@ -239,7 +252,7 @@ def _convert_one_sync(job: dict, item: dict) -> None:
         item["size"] = out_path.stat().st_size
         item["filename"] = stem + suffix
         logger.info("[%s] Done: %s → %s (%.1f KB)",
-                    job["id"], item["url"], item["filename"], item["size"] / 1024)
+                    job["id"], url, item["filename"], item["size"] / 1024)
         store.push_event(job["id"], {
             "type": "status", "url_id": item["id"], "status": "done",
             "title": title, "size": item["size"], "filename": item["filename"],
@@ -247,8 +260,7 @@ def _convert_one_sync(job: dict, item: dict) -> None:
     except Exception as e:
         item["status"] = "error"
         item["error"] = str(e)
-        logger.error("[%s] Failed: %s — %s", job["id"],
-                     item["url"], e, exc_info=True)
+        logger.error("[%s] Failed: %s — %s", job["id"], url, e, exc_info=True)
         store.push_event(job["id"], {
             "type": "status", "url_id": item["id"],
             "status": "error", "error": str(e),
