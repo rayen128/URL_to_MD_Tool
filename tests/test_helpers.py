@@ -34,3 +34,8 @@ def test_normalize_raises_for_empty_string():
 def test_normalize_raises_for_scheme_only():
     with pytest.raises(ValueError):
         normalize_url("https://")
+
+
+def test_normalize_raises_for_garbage_with_spaces():
+    with pytest.raises(ValueError):
+        normalize_url("not a url at all")
