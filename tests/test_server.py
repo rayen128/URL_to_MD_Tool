@@ -257,3 +257,17 @@ def test_zip_endpoint_404_when_no_done_files(fresh_store):
     with TestClient(app) as client:
         r = client.get(f"/api/jobs/{job['id']}/zip")
     assert r.status_code == 404
+
+
+def test_convert_one_sync_invalid_url_sets_error(fresh_store, tmp_path):
+    job = fresh_store.create(
+        urls=["https://"], fmt="pdf", name="",
+        options={"images": True, "reader": True, "pageSize": "A4"},
+    )
+    item = job["items"][0]
+    with patch("server.open_page") as mock_open, \
+         patch("server.OUTPUT_ROOT", tmp_path):
+        _convert_one_sync(job, item)
+        mock_open.assert_not_called()
+    assert item["status"] == "error"
+    assert "Cannot normalize" in item["error"]

@@ -47,6 +47,7 @@ pytest tests/test_cli.py -v
 ```
 Code/
   cli.py                     # Entry point: argparse, batch loop, collection folders
+  helpers.py                 # normalize_url(): shared URL normalization for cli.py and server.py
   converter.py               # Playwright browser, paywall bypass, AMP fallback
   rules.py                   # Content-validation constants and check functions (check_content)
   output.py                  # save_pdf() and save_markdown()
@@ -58,7 +59,7 @@ tests/                       # pytest unit tests — no real browser required
 
 ### `cli.py` — orchestrator
 
-Parses arguments, calls `resolve_output_path()` to determine the destination file, then uses `open_page()` from `converter.py` and the appropriate save function from `output.py`. The batch loop isolates per-URL errors so one failure doesn't abort the rest.
+Parses arguments, calls `normalize_url()` from `helpers.py` then `resolve_output_path()` to determine the destination file, then uses `open_page()` from `converter.py` and the appropriate save function from `output.py`. The batch loop isolates per-URL errors so one failure doesn't abort the rest.
 
 ### `converter.py` — browser and paywall bypass
 

@@ -26,3 +26,8 @@ def test_load_options_defaults():
     assert opts.use_freedium is False
 
 
+def test_sanitize_filename_with_normalized_https_url():
+    result = sanitize_filename("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+    assert result == "www.youtube.com_watch"
+    assert result.startswith("www.youtube.com")
+

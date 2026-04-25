@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 
 from playwright.sync_api import sync_playwright, Page, BrowserContext
 
-from rules import check_content
+from rules import check_content, website_heuristics
 
 logger = logging.getLogger("converter")
 
@@ -57,7 +57,7 @@ def sanitize_filename(url: str) -> str:
     base = f"{parsed.netloc}_{path}" if path else parsed.netloc
     base = base.replace("/", "_")
     base = re.sub(r"[^a-zA-Z0-9._-]", "_", base)
-    return base if base else "page"
+    return (base if base else "page")[:120]
 
 
 def _auto_scroll(page: Page, max_steps: int = SCROLL_MAX_STEPS) -> None:
@@ -230,7 +230,8 @@ def open_page(url: str, options: LoadOptions):
         url = f"https://freedium.cfd/{url}"
         logger.info("Using Freedium proxy for %s", url)
 
-    is_medium = "medium.com" in urlparse(url).netloc
+    h = website_heuristics(url)
+    is_medium = h.is_medium
     parsed = urlparse(url)
     referer = f"{parsed.scheme}://{parsed.netloc}/"
 

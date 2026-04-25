@@ -1,5 +1,18 @@
 const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
+function normalizeUrl(u) {
+  u = u.trim();
+  if (u.startsWith("//")) u = "https:" + u;
+  else if (!u.includes("://")) u = "https://" + u;
+  try {
+    const { hostname } = new URL(u);
+    if (!hostname || hostname.includes(" ") || !hostname.includes(".")) return null;
+    return u;
+  } catch {
+    return null;
+  }
+}
+
 function Converter({ collection, onCreateCollection, toast, settings, setSettings }) {
   const [text, setText] = useState("");
   const [format, setFormat] = useState("markdown"); // 'pdf' | 'markdown'
@@ -31,7 +44,7 @@ function Converter({ collection, onCreateCollection, toast, settings, setSetting
   }, [text]);
 
   const validUrls = useMemo(() =>
-    parsedUrls.filter(u => { try { new URL(u); return true; } catch { return false; } })
+    parsedUrls.map(normalizeUrl).filter(Boolean)
   , [parsedUrls]);
 
   const invalidCount = parsedUrls.length - validUrls.length;
