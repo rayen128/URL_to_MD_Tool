@@ -105,7 +105,7 @@ Examples:
     else:
         try:
             _process_url(args.url, args.format, args.collection, options, output_root)
-        except ValueError as e:
+        except Exception as e:
             print(f"ERROR: {e}", file=sys.stderr)
             sys.exit(1)
 
