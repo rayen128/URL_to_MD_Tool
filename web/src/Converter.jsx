@@ -6,7 +6,7 @@ function normalizeUrl(u) {
   else if (!u.includes("://")) u = "https://" + u;
   try {
     const { hostname } = new URL(u);
-    if (!hostname || hostname.includes(" ")) return null;
+    if (!hostname || hostname.includes(" ") || !hostname.includes(".")) return null;
     return u;
   } catch {
     return null;

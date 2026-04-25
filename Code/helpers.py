@@ -8,6 +8,6 @@ def normalize_url(url: str) -> str:
     elif "://" not in url:
         url = "https://" + url
     parsed = urlparse(url)
-    if not parsed.netloc or " " in parsed.netloc:
+    if not parsed.netloc or " " in parsed.netloc or "." not in parsed.hostname:
         raise ValueError(f"Cannot normalize to a valid URL: {url!r}")
     return url
