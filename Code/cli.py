@@ -5,6 +5,7 @@ from pathlib import Path
 
 from converter import LoadOptions, open_page, sanitize_filename
 from output import save_pdf, save_markdown
+from helpers import normalize_url
 
 OUTPUT_ROOT = Path(__file__).parent.parent / "output"
 
@@ -37,6 +38,7 @@ def _process_url(
     options: LoadOptions,
     output_root: Path,
 ) -> None:
+    url = normalize_url(url)
     out_path = resolve_output_path(url, fmt, collection, output_root)
     print(f"Converting: {url}")
     print(f"  Output:    {out_path}")
@@ -101,7 +103,11 @@ Examples:
                 print(f"  {url}: {err}")
             sys.exit(1)
     else:
-        _process_url(args.url, args.format, args.collection, options, output_root)
+        try:
+            _process_url(args.url, args.format, args.collection, options, output_root)
+        except ValueError as e:
+            print(f"ERROR: {e}", file=sys.stderr)
+            sys.exit(1)
 
 
 if __name__ == "__main__":
