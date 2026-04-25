@@ -1,3 +1,6 @@
+from dataclasses import dataclass
+from urllib.parse import urlparse
+
 from playwright.sync_api import Page
 
 MIN_CONTENT_LENGTH = 10_000
@@ -43,3 +46,15 @@ def check_content(
 
     reasons = [r for r in [html_reason, para_reason, body_reason] if r]
     return False, "; ".join(reasons)
+
+
+@dataclass
+class SiteHeuristics:
+    is_medium: bool = False
+
+
+def website_heuristics(url: str) -> SiteHeuristics:
+    netloc = urlparse(url).netloc.lower()
+    return SiteHeuristics(
+        is_medium="medium.com" in netloc,
+    )

@@ -1,5 +1,5 @@
 from unittest.mock import MagicMock
-from rules import check_content, _check_html_length, _check_paragraph_count, _check_body_text
+from rules import check_content, _check_html_length, _check_paragraph_count, _check_body_text, website_heuristics, SiteHeuristics
 
 
 def test_check_html_length_passes_on_long_html():
@@ -99,3 +99,28 @@ def test_check_content_reason_mentions_body_text_count():
     ok, reason = check_content(page)
     assert ok is False
     assert "88" in reason
+
+
+def test_website_heuristics_medium_domain():
+    h = website_heuristics("https://medium.com/article")
+    assert h.is_medium is True
+
+
+def test_website_heuristics_medium_subdomain():
+    h = website_heuristics("https://towardsdatascience.medium.com/post")
+    assert h.is_medium is True
+
+
+def test_website_heuristics_non_medium():
+    h = website_heuristics("https://youtube.com/watch?v=x")
+    assert h.is_medium is False
+
+
+def test_website_heuristics_returns_site_heuristics_instance():
+    h = website_heuristics("https://example.com")
+    assert isinstance(h, SiteHeuristics)
+
+
+def test_site_heuristics_defaults_to_false():
+    h = SiteHeuristics()
+    assert h.is_medium is False
