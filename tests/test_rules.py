@@ -124,3 +124,8 @@ def test_website_heuristics_returns_site_heuristics_instance():
 def test_site_heuristics_defaults_to_false():
     h = SiteHeuristics()
     assert h.is_medium is False
+
+
+def test_website_heuristics_domain_containing_medium_string_is_not_medium():
+    h = website_heuristics("https://notmedium.com/article")
+    assert h.is_medium is False

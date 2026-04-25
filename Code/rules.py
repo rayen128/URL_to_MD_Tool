@@ -56,5 +56,5 @@ class SiteHeuristics:
 def website_heuristics(url: str) -> SiteHeuristics:
     netloc = urlparse(url).netloc.lower()
     return SiteHeuristics(
-        is_medium="medium.com" in netloc,
+        is_medium=(netloc == "medium.com" or netloc.endswith(".medium.com")),
     )
