@@ -20,7 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
-from converter import LoadOptions, open_page, sanitize_filename
+from converter import LoadOptions, open_page, sanitize_filename, _extract_links
 from helpers import normalize_url
 from output import save_pdf, save_markdown
 from jobs import store
@@ -195,7 +195,7 @@ async def _run_job(job: dict) -> None:
     store.push_event(job["id"], {"type": "done"})
 
 
-def _convert_one_sync(job: dict, item: dict) -> None:
+def _convert_one_sync(job: dict, item: dict) -> list[str]:
     if job["cancelled"]:
         item["status"] = "error"
         item["error"] = "Cancelled"
@@ -203,7 +203,7 @@ def _convert_one_sync(job: dict, item: dict) -> None:
             "type": "status", "url_id": item["id"],
             "status": "error", "error": "Cancelled",
         })
-        return
+        return []
 
     try:
         url = normalize_url(item["url"])
@@ -215,7 +215,7 @@ def _convert_one_sync(job: dict, item: dict) -> None:
             "type": "status", "url_id": item["id"],
             "status": "error", "error": str(e),
         })
-        return
+        return []
 
     item["status"] = "working"
     logger.info("[%s] Converting %s", job["id"], url)
@@ -246,6 +246,11 @@ def _convert_one_sync(job: dict, item: dict) -> None:
                 save_pdf(page, out_path, page_size=page_size)
             else:
                 save_markdown(page, out_path, include_images=include_images)
+            # Link extraction must happen inside this block — page closes on exit
+            discovered = (
+                _extract_links(page, job["seed_path_prefixes"], job["seed_hostname"])
+                if job.get("recursive") else []
+            )
         item["status"] = "done"
         item["title"] = title
         item["file"] = str(out_path)
@@ -257,6 +262,7 @@ def _convert_one_sync(job: dict, item: dict) -> None:
             "type": "status", "url_id": item["id"], "status": "done",
             "title": title, "size": item["size"], "filename": item["filename"],
         })
+        return discovered
     except Exception as e:
         item["status"] = "error"
         item["error"] = str(e)
@@ -265,6 +271,7 @@ def _convert_one_sync(job: dict, item: dict) -> None:
             "type": "status", "url_id": item["id"],
             "status": "error", "error": str(e),
         })
+        return []
 
 
 @app.get("/api/collections")

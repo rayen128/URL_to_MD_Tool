@@ -26,7 +26,7 @@ Add recursive (crawl) mode to the URL-to-PDF converter. When enabled, the user p
 |---|---|---|
 | `recursive` | `bool` | Whether this is a crawl job |
 | `max_pages` | `int` | Cap on total pages (default 100) |
-| `seed_path_prefix` | `str` | Path prefix derived from seed URL at job creation (e.g. `"/guide/"`) |
+| `seed_path_prefixes` | `list[str]` | Path prefixes derived from each seed URL (e.g. `["/guide/"]`), each normalized to strip trailing slash via `rstrip("/") or "/"` applied to the path, then the prefix stored with a trailing `/` to prevent `/guide` matching `/guide-v2` |
 | `visited` | `set[str]` | Normalized URLs already queued; used to deduplicate discovered links |
 
 These fields are only present when `recursive=True`. Non-recursive jobs have none of them.
@@ -52,20 +52,27 @@ Accepts two new optional kwargs: `recursive: bool = False`, `max_pages: int = 10
 
 ### New function: `_extract_links(page, seed_path_prefixes, seed_hostname) -> list[str]`
 
-Called from `_convert_one_sync` after a successful page render, only when `job["recursive"]` is true.
+Called from `_convert_one_sync` **inside the `with open_page(...) as page:` block**, after saving the file but before the context manager closes the page. Must not be called after the `with` block exits — the page is closed at that point.
+
+Only called when `job["recursive"]` is true and conversion succeeded. On failure, returns `[]` implicitly (link extraction is skipped).
 
 **Logic:**
 1. `page.evaluate()` to collect all `<a href>` attribute values from the DOM.
+   - *Scope is intentionally limited to `<a href>` elements. `<area href>`, canonical `<link>` tags, and JS-rendered nav menus that don't produce `<a>` tags are out of scope — appropriate for documentation sites, which universally use `<a>` for navigation.*
 2. Resolve relative URLs against the page's current URL.
 3. Filter — keep only URLs where:
    - Scheme is `http` or `https`
    - Hostname matches `seed_hostname` exactly
    - Path starts with ANY prefix in `seed_path_prefixes`
    - Not a `mailto:`, `tel:`, or `javascript:` link
-4. Normalize: strip fragment (`#...`) and query string, apply trailing-slash normalization.
-5. Return deduplicated list of absolute URLs.
+4. Normalize each URL:
+   - Strip query string entirely. *Doc pages are never content-differentiated by query param — query strings on documentation sites are tracking params, view toggles, or analytics markers, not distinct content.*
+   - Strip fragment (`#...`).
+   - Canonicalize trailing slash: `parsed.path.rstrip("/") or "/"` — `/about/` and `/about` both become `/about`; root `/` stays `/`.
+5. Deduplicate using `(hostname, canonical_path)` as key.
+6. Return deduplicated list of absolute URLs in canonical form.
 
-**Result stored in item dict:** `item["discovered_urls"] = [...]`. The parent coroutine reads and clears this list after the executor call returns. On conversion failure, no link extraction is attempted (no crawling from broken pages).
+**Return value:** `_convert_one_sync` returns `list[str]` directly (changed from `-> None`). The discovered URLs are the return value — not stored in the item dict. All early-return paths (cancelled, invalid URL, conversion failure) return `[]`. The non-recursive `_run_job` path discards the return value unchanged.
 
 ---
 
@@ -92,8 +99,8 @@ async def process_one(item):
     nonlocal active_count
     try:
         async with _semaphore:
-            await loop.run_in_executor(_executor, _convert_one_sync, job, item)
-        for url in item.pop("discovered_urls", []):
+            new_urls = await loop.run_in_executor(_executor, _convert_one_sync, job, item)
+        for url in new_urls:
             new_item = store.add_item(job["id"], url)
             if new_item:
                 push item_added SSE event

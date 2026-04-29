@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urljoin
 
 from playwright.sync_api import sync_playwright, Page, BrowserContext
 
@@ -58,6 +58,48 @@ def sanitize_filename(url: str) -> str:
     base = base.replace("/", "_")
     base = re.sub(r"[^a-zA-Z0-9._-]", "_", base)
     return (base if base else "page")[:120]
+
+
+def _extract_links(page: Page, seed_path_prefixes: list[str], seed_hostname: str) -> list[str]:
+    # Intentionally limited to <a href> elements. <area href>, canonical <link> tags,
+    # and JS-rendered nav menus that don't produce <a> tags are out of scope —
+    # appropriate for documentation sites, which universally use <a> for navigation.
+    hrefs: list[str] = page.evaluate(
+        "Array.from(document.querySelectorAll('a[href]'), a => a.getAttribute('href'))"
+    )
+    base_url = page.url
+    seen: set[str] = set()
+    result: list[str] = []
+    for href in hrefs:
+        if not href:
+            continue
+        try:
+            absolute = urljoin(base_url, href)
+            parsed = urlparse(absolute)
+        except Exception:
+            continue
+        if parsed.scheme not in ("http", "https"):
+            continue
+        if parsed.hostname != seed_hostname:
+            continue
+        # Strip query strings: doc pages are never content-differentiated by query param
+        canonical_path = parsed.path.rstrip("/") or "/"
+        canonical_url = f"{parsed.scheme}://{parsed.netloc}{canonical_path}"
+        if not _in_scope(canonical_path, seed_path_prefixes):
+            continue
+        if canonical_url in seen:
+            continue
+        seen.add(canonical_url)
+        result.append(canonical_url)
+    return result
+
+
+def _in_scope(path: str, prefixes: list[str]) -> bool:
+    for prefix in prefixes:
+        p = prefix if prefix.endswith("/") else prefix + "/"
+        if path == p.rstrip("/") or path.startswith(p):
+            return True
+    return False
 
 
 def _auto_scroll(page: Page, max_steps: int = SCROLL_MAX_STEPS) -> None:
