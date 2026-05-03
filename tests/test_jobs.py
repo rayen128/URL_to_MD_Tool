@@ -142,7 +142,16 @@ def test_create_recursive_prefix_from_directory_path():
 def test_create_recursive_visited_prepopulated():
     store = JobStore()
     job = store.create([SEED], "pdf", "Test", {}, recursive=True)
-    assert SEED in job["visited"]
+    # Visited stores canonical form (no trailing slash, no query/fragment)
+    assert "https://docs.example.com/guide/intro" in job["visited"]
+
+
+def test_create_recursive_visited_normalises_trailing_slash():
+    # Seed with trailing slash must be stored canonically so _extract_links dedup works
+    store = JobStore()
+    job = store.create([SEED_DIR], "pdf", "Test", {}, recursive=True)
+    assert "https://docs.example.com/guide" in job["visited"]
+    assert SEED_DIR not in job["visited"]
 
 
 def test_create_recursive_cap_reached_false():

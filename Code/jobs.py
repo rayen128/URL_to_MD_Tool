@@ -37,6 +37,13 @@ def _seed_prefix(url: str) -> str:
         return parent
 
 
+def _canonical_url(url: str) -> str:
+    """Strip query string, fragment, and trailing path slash — matches _extract_links normalisation."""
+    p = urlparse(url)
+    path = p.path.rstrip("/") or "/"
+    return f"{p.scheme}://{p.netloc}{path}"
+
+
 class JobStore:
     def __init__(self):
         self._jobs: dict[str, dict] = {}
@@ -91,7 +98,7 @@ class JobStore:
             job["max_pages"] = max_pages
             job["seed_hostname"] = job_seed_hostname
             job["seed_path_prefixes"] = [_seed_prefix(url) for url in urls]
-            job["visited"] = set(urls)
+            job["visited"] = {_canonical_url(u) for u in urls}
             job["cap_reached"] = False
 
         self._jobs[job_id] = job
