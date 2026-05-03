@@ -270,15 +270,26 @@ function Converter({ collection, onCreateCollection, toast, settings, setSetting
 
       <div className="converter">
         {/* LEFT — input */}
-        <div className="card">
+        <div className={`card ${recursive ? "recursive-mode" : ""}`}>
           <div className="card-head">
-            <h2><span className="step">1</span> Paste URLs</h2>
+            <h2>
+              <span className="step">1</span>
+              {recursive ? "Crawl from seed URL" : "Paste URLs"}
+              {recursive && <span className="chip chip-recursive" style={{marginLeft:6}}>↻ Recursive</span>}
+            </h2>
             <span className="hint">
               {validUrls.length} valid
               {invalidCount > 0 && <span style={{color:"var(--danger)", marginLeft:6}}>· {invalidCount} invalid</span>}
             </span>
           </div>
           <div className="card-body">
+            <div className="field" style={{marginTop:0, marginBottom:14}}>
+              <label className="field-label">Mode</label>
+              <div className="segmented mode-seg">
+                <button className={!recursive ? "on" : ""} onClick={() => setRecursive(false)}>Standard</button>
+                <button className={recursive ? "on" : ""} onClick={() => setRecursive(true)}>↻ Recursive</button>
+              </div>
+            </div>
             <div className="url-input-wrap">
               <textarea
                 className="url-input"
@@ -346,33 +357,22 @@ function Converter({ collection, onCreateCollection, toast, settings, setSetting
               </button>
               {optionsOpen && (
                 <div className="options-body">
-                  <div className="opt-row">
+                  <div className={`opt-row ${!recursive ? "disabled" : ""}`}>
                     <div className="opt-label">
-                      <span>Recursive crawl</span>
-                      <small>Auto-discover all linked pages under the seed URL</small>
+                      <span>Max pages</span>
+                      <small>{recursive ? "Crawl stops after this many pages" : "Enable Recursive mode to use"}</small>
                     </div>
-                    <div
-                      className={`switch ${recursive ? "on" : ""}`}
-                      onClick={() => setRecursive(r => !r)}
+                    <input
+                      className="mini-input"
+                      type="number"
+                      min="1"
+                      max="1000"
+                      value={maxPages}
+                      onChange={e => setMaxPages(Math.max(1, parseInt(e.target.value) || 1))}
+                      disabled={!recursive}
+                      style={{width: 64}}
                     />
                   </div>
-                  {recursive && (
-                    <div className="opt-row">
-                      <div className="opt-label">
-                        <span>Max pages</span>
-                        <small>Stop crawling after this many pages</small>
-                      </div>
-                      <input
-                        className="mini-input"
-                        type="number"
-                        min="1"
-                        max="1000"
-                        value={maxPages}
-                        onChange={e => setMaxPages(Math.max(1, parseInt(e.target.value) || 1))}
-                        style={{width: 64}}
-                      />
-                    </div>
-                  )}
                   <div className="opt-row">
                     <div className="opt-label">
                       <span>Include images</span>
@@ -425,9 +425,13 @@ function Converter({ collection, onCreateCollection, toast, settings, setSetting
             {/* CTA */}
             <div className="cta-row">
               {!isRunning ? (
-                <button className="btn btn-primary btn-lg btn-block" disabled={!canConvert} onClick={startConversion}>
-                  <Icon.Sparkles size={15}/>
-                  {items.length > 0 && isDone ? "Convert again" : `Convert ${validUrls.length || ""} URL${validUrls.length===1?"":"s"}`.trim()}
+                <button className={`btn ${recursive ? "btn-recursive" : "btn-primary"} btn-lg btn-block`} disabled={!canConvert} onClick={startConversion}>
+                  {recursive ? <Icon.Refresh size={15}/> : <Icon.Sparkles size={15}/>}
+                  {items.length > 0 && isDone
+                    ? (recursive ? "↻ Crawl again" : "Convert again")
+                    : recursive
+                      ? `Crawl from ${validUrls.length || ""} seed URL${validUrls.length===1?"":"s"}`.trim()
+                      : `Convert ${validUrls.length || ""} URL${validUrls.length===1?"":"s"}`.trim()}
                 </button>
               ) : (
                 <button className="btn btn-ghost btn-lg btn-block" onClick={cancelRun}>
