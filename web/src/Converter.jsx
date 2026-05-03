@@ -147,7 +147,7 @@ function Converter({ collection, onCreateCollection, toast, settings, setSetting
           if (esRef.current) { esRef.current.close(); esRef.current = null; }
         }
         if (data.type === 'item_added') {
-          setItems(prev => [...prev, {
+          setItems(prev => prev.some(x => x.id === data.item.id) ? prev : [...prev, {
             ...data.item,
             title: titleFor(data.item.url),
             size: null,
@@ -197,7 +197,7 @@ function Converter({ collection, onCreateCollection, toast, settings, setSetting
         }
         if (data.type === 'done') { setIsRunning(false); setIsDone(true); }
         if (data.type === 'item_added') {
-          setItems(prev => [...prev, {
+          setItems(prev => prev.some(x => x.id === data.item.id) ? prev : [...prev, {
             ...data.item,
             title: titleFor(data.item.url),
             size: null,
