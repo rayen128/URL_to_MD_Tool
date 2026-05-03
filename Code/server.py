@@ -20,7 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
-from converter import LoadOptions, open_page, sanitize_filename
+from converter import LoadOptions, open_page, sanitize_filename, _extract_links
 from helpers import normalize_url
 from output import save_pdf, save_markdown
 from jobs import store
@@ -138,14 +138,20 @@ def _log_job_finish(job: dict) -> None:
 
 @app.post("/api/convert")
 async def post_convert(body: ConvertRequest):
+    recursive = bool(body.options.get("recursive", False))
+    max_pages = int(body.options.get("maxPages", 100))
     job = store.create(
         urls=body.urls,
         fmt=body.format,
         name=body.collection,
         options=body.options,
+        recursive=recursive,
+        max_pages=max_pages,
     )
-    logger.info("Job %s started — %d URL(s), format=%s, collection=%r",
-                job["id"], len(body.urls), body.format, body.collection or "(none)")
+    logger.info(
+        "Job %s started — %d URL(s), format=%s, collection=%r, recursive=%s",
+        job["id"], len(body.urls), body.format, body.collection or "(none)", recursive,
+    )
     _log_job_start(job)
     asyncio.create_task(_run_job(job))
     return {
@@ -164,38 +170,93 @@ async def post_convert(body: ConvertRequest):
 
 
 async def _run_job(job: dict) -> None:
-    sem = _semaphore
     loop = asyncio.get_running_loop()
 
-    async def process_item(item: dict) -> None:
-        async with sem:
-            if job["cancelled"]:
-                item["status"] = "error"
-                item["error"] = "Cancelled"
-                store.push_event(job["id"], {
-                    "type": "status", "url_id": item["id"],
-                    "status": "error", "error": "Cancelled",
-                })
-                return
-            await loop.run_in_executor(_executor, _convert_one_sync, job, item)
+    if not job.get("recursive"):
+        sem = _semaphore
 
-    results = await asyncio.gather(
-        *[process_item(item) for item in job["items"]],
-        return_exceptions=True,
-    )
-    for exc in results:
-        if isinstance(exc, Exception):
-            logger.error("Unexpected error in job %s worker",
-                         job["id"], exc_info=exc)
+        async def process_item(item: dict) -> None:
+            async with sem:
+                if job["cancelled"]:
+                    item["status"] = "error"
+                    item["error"] = "Cancelled"
+                    store.push_event(job["id"], {
+                        "type": "status", "url_id": item["id"],
+                        "status": "error", "error": "Cancelled",
+                    })
+                    return
+                await loop.run_in_executor(_executor, _convert_one_sync, job, item)
+
+        results = await asyncio.gather(
+            *[process_item(item) for item in job["items"]],
+            return_exceptions=True,
+        )
+        for exc in results:
+            if isinstance(exc, Exception):
+                logger.error("Unexpected error in job %s worker",
+                             job["id"], exc_info=exc)
+    else:
+        # Recursive path: self-spawning coroutines.
+        # active_count tracks live tasks (queued + running). Increment before
+        # create_task, decrement in finally. Single-threaded event loop makes
+        # this race-free.
+        active_count = len(job["items"])
+        finished = asyncio.Event()
+        cap_event_fired = False
+
+        async def process_one(item: dict) -> None:
+            nonlocal active_count, cap_event_fired
+            try:
+                async with _semaphore:
+                    new_urls = await loop.run_in_executor(
+                        _executor, _convert_one_sync, job, item
+                    )
+                for url in new_urls:
+                    new_item = store.add_item(job["id"], url)
+                    if new_item:
+                        store.push_event(job["id"], {
+                            "type": "item_added",
+                            "item": {
+                                "id": new_item["id"],
+                                "url": new_item["url"],
+                                "domain": new_item["domain"],
+                                "favicon": new_item["favicon"],
+                                "status": new_item["status"],
+                            },
+                        })
+                        active_count += 1
+                        asyncio.create_task(process_one(new_item))
+                if job.get("cap_reached") and not cap_event_fired:
+                    store.push_event(job["id"], {
+                        "type": "cap_reached",
+                        "max_pages": job["max_pages"],
+                    })
+                    cap_event_fired = True
+            except Exception:
+                logger.error(
+                    "Unexpected error in recursive worker job %s item %s",
+                    job["id"], item["id"], exc_info=True,
+                )
+            finally:
+                active_count -= 1
+                if active_count == 0:
+                    finished.set()
+
+        if active_count == 0:
+            finished.set()
+        else:
+            for item in job["items"]:
+                asyncio.create_task(process_one(item))
+            await finished.wait()
+
     done = sum(1 for i in job["items"] if i["status"] == "done")
     errors = sum(1 for i in job["items"] if i["status"] == "error")
-    logger.info("Job %s finished — %d done, %d error(s)",
-                job["id"], done, errors)
+    logger.info("Job %s finished — %d done, %d error(s)", job["id"], done, errors)
     _log_job_finish(job)
     store.push_event(job["id"], {"type": "done"})
 
 
-def _convert_one_sync(job: dict, item: dict) -> None:
+def _convert_one_sync(job: dict, item: dict) -> list[str]:
     if job["cancelled"]:
         item["status"] = "error"
         item["error"] = "Cancelled"
@@ -203,7 +264,7 @@ def _convert_one_sync(job: dict, item: dict) -> None:
             "type": "status", "url_id": item["id"],
             "status": "error", "error": "Cancelled",
         })
-        return
+        return []
 
     try:
         url = normalize_url(item["url"])
@@ -215,7 +276,7 @@ def _convert_one_sync(job: dict, item: dict) -> None:
             "type": "status", "url_id": item["id"],
             "status": "error", "error": str(e),
         })
-        return
+        return []
 
     item["status"] = "working"
     logger.info("[%s] Converting %s", job["id"], url)
@@ -246,6 +307,11 @@ def _convert_one_sync(job: dict, item: dict) -> None:
                 save_pdf(page, out_path, page_size=page_size)
             else:
                 save_markdown(page, out_path, include_images=include_images)
+            # Link extraction must happen inside this block — page closes on exit
+            discovered = (
+                _extract_links(page, job["seed_path_prefixes"], job["seed_hostname"])
+                if job.get("recursive") else []
+            )
         item["status"] = "done"
         item["title"] = title
         item["file"] = str(out_path)
@@ -257,6 +323,7 @@ def _convert_one_sync(job: dict, item: dict) -> None:
             "type": "status", "url_id": item["id"], "status": "done",
             "title": title, "size": item["size"], "filename": item["filename"],
         })
+        return discovered
     except Exception as e:
         item["status"] = "error"
         item["error"] = str(e)
@@ -265,6 +332,7 @@ def _convert_one_sync(job: dict, item: dict) -> None:
             "type": "status", "url_id": item["id"],
             "status": "error", "error": str(e),
         })
+        return []
 
 
 @app.get("/api/collections")

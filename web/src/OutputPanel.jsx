@@ -1,6 +1,6 @@
 const { useState: useStateOP } = React;
 
-function OutputPanel({ items, stats, progress, isRunning, isDone, name, format, onRetry, onRemove, onDownloadOne, onDownloadAll }) {
+function OutputPanel({ items, stats, progress, isRunning, isDone, isCrawling, name, format, onRetry, onRemove, onDownloadOne, onDownloadAll }) {
   const { fmtSize } = window.ProtinusData;
   if (!items.length) return <EmptyOutput />;
 
@@ -33,7 +33,7 @@ function OutputPanel({ items, stats, progress, isRunning, isDone, name, format, 
         <div className="progress-row">
           <strong style={{fontSize:13, color:"var(--ink)"}}>
             {isRunning
-              ? `Converting… ${stats.done + stats.error} / ${items.length}`
+              ? `${isCrawling ? "Crawling" : "Converting"}… ${stats.done + stats.error} / ${items.length}`
               : isDone
                 ? stats.error > 0
                   ? `Finished with ${stats.error} error${stats.error>1?"s":""}`

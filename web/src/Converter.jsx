@@ -22,6 +22,8 @@ function Converter({ collection, onCreateCollection, toast, settings, setSetting
   const [isRunning, setIsRunning] = useState(false);
   const [isDone, setIsDone] = useState(false);
   const [jobId, setJobId] = useState(null);
+  const [recursive, setRecursive] = useState(false);
+  const [maxPages, setMaxPages] = useState(100);
   const esRef = useRef(null);
 
   useEffect(() => {
@@ -101,7 +103,13 @@ function Converter({ collection, onCreateCollection, toast, settings, setSetting
           urls: validUrls,
           format,
           collection: name || '',
-          options: { images: settings.images, reader: settings.reader, pageSize: settings.pageSize },
+          options: {
+            images: settings.images,
+            reader: settings.reader,
+            pageSize: settings.pageSize,
+            recursive,
+            maxPages,
+          },
         }),
       });
       if (!resp.ok) throw new Error(`Server error: ${resp.status}`);
@@ -137,6 +145,17 @@ function Converter({ collection, onCreateCollection, toast, settings, setSetting
           setIsRunning(false);
           setIsDone(true);
           if (esRef.current) { esRef.current.close(); esRef.current = null; }
+        }
+        if (data.type === 'item_added') {
+          setItems(prev => prev.some(x => x.id === data.item.id) ? prev : [...prev, {
+            ...data.item,
+            title: titleFor(data.item.url),
+            size: null,
+            error: null,
+          }]);
+        }
+        if (data.type === 'cap_reached') {
+          toast(`Crawl limit reached — stopped at ${data.max_pages} pages`);
         }
       };
       es.onerror = () => {
@@ -177,6 +196,17 @@ function Converter({ collection, onCreateCollection, toast, settings, setSetting
           ));
         }
         if (data.type === 'done') { setIsRunning(false); setIsDone(true); }
+        if (data.type === 'item_added') {
+          setItems(prev => prev.some(x => x.id === data.item.id) ? prev : [...prev, {
+            ...data.item,
+            title: titleFor(data.item.url),
+            size: null,
+            error: null,
+          }]);
+        }
+        if (data.type === 'cap_reached') {
+          toast(`Crawl limit reached — stopped at ${data.max_pages} pages`);
+        }
       };
       es.onerror = () => {
         setIsRunning(false);
@@ -240,19 +270,34 @@ function Converter({ collection, onCreateCollection, toast, settings, setSetting
 
       <div className="converter">
         {/* LEFT — input */}
-        <div className="card">
+        <div className={`card ${recursive ? "recursive-mode" : ""}`}>
           <div className="card-head">
-            <h2><span className="step">1</span> Paste URLs</h2>
+            <h2>
+              <span className="step">1</span>
+              {recursive ? "Crawl from seed URL" : "Paste URLs"}
+              {recursive && <span className="chip chip-recursive" style={{marginLeft:6}}>↻ Recursive</span>}
+            </h2>
             <span className="hint">
               {validUrls.length} valid
               {invalidCount > 0 && <span style={{color:"var(--danger)", marginLeft:6}}>· {invalidCount} invalid</span>}
             </span>
           </div>
           <div className="card-body">
+            <div className="field" style={{marginTop:0, marginBottom:14}}>
+              <label className="field-label">Mode</label>
+              <div className="segmented mode-seg">
+                <button className={!recursive ? "on" : ""} onClick={() => setRecursive(false)}>Standard</button>
+                <button className={recursive ? "on" : ""} onClick={() => setRecursive(true)}>↻ Recursive</button>
+              </div>
+            </div>
             <div className="url-input-wrap">
               <textarea
                 className="url-input"
-                placeholder={"https://example.com/article-1\nhttps://example.com/article-2\nhttps://example.com/article-3\n\n…one URL per line"}
+                placeholder={
+                  recursive
+                    ? "Enter a seed URL to crawl from…\n(e.g. https://docs.example.com/guide/)"
+                    : "https://example.com/article-1\nhttps://example.com/article-2\nhttps://example.com/article-3\n\n…one URL per line"
+                }
                 value={text}
                 onChange={e => setText(e.target.value)}
                 spellCheck={false}
@@ -312,6 +357,22 @@ function Converter({ collection, onCreateCollection, toast, settings, setSetting
               </button>
               {optionsOpen && (
                 <div className="options-body">
+                  <div className={`opt-row ${!recursive ? "disabled" : ""}`}>
+                    <div className="opt-label">
+                      <span>Max pages</span>
+                      <small>{recursive ? "Crawl stops after this many pages" : "Enable Recursive mode to use"}</small>
+                    </div>
+                    <input
+                      className="mini-input"
+                      type="number"
+                      min="1"
+                      max="1000"
+                      value={maxPages}
+                      onChange={e => setMaxPages(Math.max(1, parseInt(e.target.value) || 1))}
+                      disabled={!recursive}
+                      style={{width: 64}}
+                    />
+                  </div>
                   <div className="opt-row">
                     <div className="opt-label">
                       <span>Include images</span>
@@ -364,9 +425,13 @@ function Converter({ collection, onCreateCollection, toast, settings, setSetting
             {/* CTA */}
             <div className="cta-row">
               {!isRunning ? (
-                <button className="btn btn-primary btn-lg btn-block" disabled={!canConvert} onClick={startConversion}>
-                  <Icon.Sparkles size={15}/>
-                  {items.length > 0 && isDone ? "Convert again" : `Convert ${validUrls.length || ""} URL${validUrls.length===1?"":"s"}`.trim()}
+                <button className={`btn ${recursive ? "btn-recursive" : "btn-primary"} btn-lg btn-block`} disabled={!canConvert} onClick={startConversion}>
+                  {recursive ? <Icon.Refresh size={15}/> : <Icon.Sparkles size={15}/>}
+                  {items.length > 0 && isDone
+                    ? (recursive ? "↻ Crawl again" : "Convert again")
+                    : recursive
+                      ? `Crawl from ${validUrls.length || ""} seed URL${validUrls.length===1?"":"s"}`.trim()
+                      : `Convert ${validUrls.length || ""} URL${validUrls.length===1?"":"s"}`.trim()}
                 </button>
               ) : (
                 <button className="btn btn-ghost btn-lg btn-block" onClick={cancelRun}>
@@ -385,6 +450,7 @@ function Converter({ collection, onCreateCollection, toast, settings, setSetting
             progress={progress}
             isRunning={isRunning}
             isDone={isDone}
+            isCrawling={recursive && isRunning}
             name={name}
             format={format}
             onRetry={retryOne}
