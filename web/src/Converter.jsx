@@ -22,6 +22,8 @@ function Converter({ collection, onCreateCollection, toast, settings, setSetting
   const [isRunning, setIsRunning] = useState(false);
   const [isDone, setIsDone] = useState(false);
   const [jobId, setJobId] = useState(null);
+  const [recursive, setRecursive] = useState(false);
+  const [maxPages, setMaxPages] = useState(100);
   const esRef = useRef(null);
 
   useEffect(() => {
@@ -101,7 +103,13 @@ function Converter({ collection, onCreateCollection, toast, settings, setSetting
           urls: validUrls,
           format,
           collection: name || '',
-          options: { images: settings.images, reader: settings.reader, pageSize: settings.pageSize },
+          options: {
+            images: settings.images,
+            reader: settings.reader,
+            pageSize: settings.pageSize,
+            recursive,
+            maxPages,
+          },
         }),
       });
       if (!resp.ok) throw new Error(`Server error: ${resp.status}`);
@@ -137,6 +145,17 @@ function Converter({ collection, onCreateCollection, toast, settings, setSetting
           setIsRunning(false);
           setIsDone(true);
           if (esRef.current) { esRef.current.close(); esRef.current = null; }
+        }
+        if (data.type === 'item_added') {
+          setItems(prev => [...prev, {
+            ...data.item,
+            title: titleFor(data.item.url),
+            size: null,
+            error: null,
+          }]);
+        }
+        if (data.type === 'cap_reached') {
+          toast(`Crawl limit reached — stopped at ${data.max_pages} pages`);
         }
       };
       es.onerror = () => {
@@ -177,6 +196,17 @@ function Converter({ collection, onCreateCollection, toast, settings, setSetting
           ));
         }
         if (data.type === 'done') { setIsRunning(false); setIsDone(true); }
+        if (data.type === 'item_added') {
+          setItems(prev => [...prev, {
+            ...data.item,
+            title: titleFor(data.item.url),
+            size: null,
+            error: null,
+          }]);
+        }
+        if (data.type === 'cap_reached') {
+          toast(`Crawl limit reached — stopped at ${data.max_pages} pages`);
+        }
       };
       es.onerror = () => {
         setIsRunning(false);
@@ -252,7 +282,11 @@ function Converter({ collection, onCreateCollection, toast, settings, setSetting
             <div className="url-input-wrap">
               <textarea
                 className="url-input"
-                placeholder={"https://example.com/article-1\nhttps://example.com/article-2\nhttps://example.com/article-3\n\n…one URL per line"}
+                placeholder={
+                  recursive
+                    ? "Enter a seed URL to crawl from…\n(e.g. https://docs.example.com/guide/)"
+                    : "https://example.com/article-1\nhttps://example.com/article-2\nhttps://example.com/article-3\n\n…one URL per line"
+                }
                 value={text}
                 onChange={e => setText(e.target.value)}
                 spellCheck={false}
@@ -312,6 +346,33 @@ function Converter({ collection, onCreateCollection, toast, settings, setSetting
               </button>
               {optionsOpen && (
                 <div className="options-body">
+                  <div className="opt-row">
+                    <div className="opt-label">
+                      <span>Recursive crawl</span>
+                      <small>Auto-discover all linked pages under the seed URL</small>
+                    </div>
+                    <div
+                      className={`switch ${recursive ? "on" : ""}`}
+                      onClick={() => setRecursive(r => !r)}
+                    />
+                  </div>
+                  {recursive && (
+                    <div className="opt-row">
+                      <div className="opt-label">
+                        <span>Max pages</span>
+                        <small>Stop crawling after this many pages</small>
+                      </div>
+                      <input
+                        className="mini-input"
+                        type="number"
+                        min="1"
+                        max="1000"
+                        value={maxPages}
+                        onChange={e => setMaxPages(Math.max(1, parseInt(e.target.value) || 1))}
+                        style={{width: 64}}
+                      />
+                    </div>
+                  )}
                   <div className="opt-row">
                     <div className="opt-label">
                       <span>Include images</span>
@@ -385,6 +446,7 @@ function Converter({ collection, onCreateCollection, toast, settings, setSetting
             progress={progress}
             isRunning={isRunning}
             isDone={isDone}
+            isCrawling={recursive && isRunning}
             name={name}
             format={format}
             onRetry={retryOne}
