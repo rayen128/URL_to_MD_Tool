@@ -1,7 +1,40 @@
 import asyncio
+import posixpath
 import time
 import uuid
 from urllib.parse import urlparse
+
+
+def _seed_prefix(url: str) -> str:
+    """
+    Extract the seed path prefix from a URL.
+
+    For a path ending with `/` (directory URL): use the path as-is with trailing `/`
+    For a path NOT ending with `/` (file-like URL): use the parent directory with trailing `/`
+    Special case: if result is `/`, keep it as `/`
+
+    Examples:
+    - /guide/intro → /guide/
+    - /guide/ → /guide/
+    - / → /
+    """
+    path = urlparse(url).path
+
+    if path.endswith("/"):
+        # Directory URL: rstrip("/") and add back "/"
+        stripped = path.rstrip("/")
+        result = stripped or "/"
+        if result != "/":
+            result = result + "/"
+        return result
+    else:
+        # File-like URL: use parent directory
+        parent = posixpath.dirname(path)
+        if parent == "":
+            parent = "/"
+        if parent != "/":
+            parent = parent + "/"
+        return parent
 
 
 class JobStore:
@@ -10,7 +43,21 @@ class JobStore:
         self._queues: dict[str, asyncio.Queue] = {}
         self._loops: dict[str, asyncio.AbstractEventLoop] = {}
 
-    def create(self, urls: list[str], fmt: str, name: str, options: dict) -> dict:
+    def create(
+        self,
+        urls: list[str],
+        fmt: str,
+        name: str,
+        options: dict,
+        recursive: bool = False,
+        max_pages: int = 100,
+    ) -> dict:
+        # If recursive mode, validate all URLs share the same hostname
+        if recursive:
+            hostnames = [urlparse(url).hostname for url in urls]
+            if len(set(hostnames)) > 1:
+                raise ValueError("All seed URLs must share the same hostname")
+
         job_id = f"j-{int(time.time() * 1000)}-{uuid.uuid4().hex[:6]}"
         items = [
             {
@@ -36,6 +83,16 @@ class JobStore:
             "items": items,
             "cancelled": False,
         }
+
+        # Add recursive mode fields
+        if recursive:
+            job["recursive"] = True
+            job["max_pages"] = max_pages
+            job["seed_hostname"] = urlparse(urls[0]).hostname
+            job["seed_path_prefixes"] = [_seed_prefix(url) for url in urls]
+            job["visited"] = set(urls)
+            job["cap_reached"] = False
+
         self._jobs[job_id] = job
         self._queues[job_id] = asyncio.Queue()
         try:
@@ -69,6 +126,51 @@ class JobStore:
         if q is None:
             return None
         return await q.get()
+
+    def add_item(self, job_id: str, url: str) -> dict | None:
+        """
+        Add a new URL to a recursive job.
+
+        Returns None if:
+        - job_id not found
+        - url already in visited
+        - max_pages cap reached
+
+        Returns the new item dict if successful.
+        """
+        job = self.get(job_id)
+        if job is None:
+            return None
+
+        # Check if URL already visited
+        if url in job.get("visited", set()):
+            return None
+
+        # Check if at cap
+        if len(job["items"]) >= job.get("max_pages", float("inf")):
+            job["cap_reached"] = True
+            return None
+
+        # Create the new item
+        item_id = f"u-{len(job['items'])}"
+        item = {
+            "id": item_id,
+            "url": url,
+            "domain": _domain(url),
+            "favicon": _favicon(url),
+            "status": "queued",
+            "title": None,
+            "file": None,
+            "size": None,
+            "filename": None,
+            "error": None,
+        }
+
+        # Add to job
+        job["items"].append(item)
+        job["visited"].add(url)
+
+        return item
 
 
 def _domain(url: str) -> str:

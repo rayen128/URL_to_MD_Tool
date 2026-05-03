@@ -1,5 +1,11 @@
 import asyncio
+import pytest
 from jobs import JobStore, _domain, _favicon
+
+SEED = "https://docs.example.com/guide/intro"
+SEED_DIR = "https://docs.example.com/guide/"
+SEED2 = "https://docs.example.com/api/method"
+DIFF_DOMAIN = "https://other.com/guide/intro"
 
 
 def make_store():
@@ -83,3 +89,151 @@ def test_favicon_helper():
     result = _favicon("https://example.com/page")
     assert result.startswith("https://www.google.com/s2/favicons")
     assert "example.com" in result
+
+
+# --- Recursive mode tests ---
+
+def test_create_non_recursive_has_no_crawl_fields():
+    store = JobStore()
+    job = store.create(["https://example.com"], "pdf", "Test", {})
+    assert not job.get("recursive")
+    assert "visited" not in job
+    assert "seed_path_prefixes" not in job
+
+
+def test_create_recursive_sets_recursive_flag():
+    store = JobStore()
+    job = store.create([SEED], "pdf", "Test", {}, recursive=True)
+    assert job["recursive"] is True
+
+
+def test_create_recursive_default_max_pages():
+    store = JobStore()
+    job = store.create([SEED], "pdf", "Test", {}, recursive=True)
+    assert job["max_pages"] == 100
+
+
+def test_create_recursive_custom_max_pages():
+    store = JobStore()
+    job = store.create([SEED], "pdf", "Test", {}, recursive=True, max_pages=25)
+    assert job["max_pages"] == 25
+
+
+def test_create_recursive_seed_hostname():
+    store = JobStore()
+    job = store.create([SEED], "pdf", "Test", {}, recursive=True)
+    assert job["seed_hostname"] == "docs.example.com"
+
+
+def test_create_recursive_prefix_from_file_path():
+    # /guide/intro → parent dir → /guide/
+    store = JobStore()
+    job = store.create([SEED], "pdf", "Test", {}, recursive=True)
+    assert job["seed_path_prefixes"] == ["/guide/"]
+
+
+def test_create_recursive_prefix_from_directory_path():
+    # /guide/ → /guide/
+    store = JobStore()
+    job = store.create([SEED_DIR], "pdf", "Test", {}, recursive=True)
+    assert job["seed_path_prefixes"] == ["/guide/"]
+
+
+def test_create_recursive_visited_prepopulated():
+    store = JobStore()
+    job = store.create([SEED], "pdf", "Test", {}, recursive=True)
+    assert SEED in job["visited"]
+
+
+def test_create_recursive_cap_reached_false():
+    store = JobStore()
+    job = store.create([SEED], "pdf", "Test", {}, recursive=True)
+    assert job["cap_reached"] is False
+
+
+def test_create_recursive_multiple_seeds_same_host():
+    store = JobStore()
+    job = store.create([SEED, SEED2], "pdf", "Test", {}, recursive=True)
+    assert job["seed_hostname"] == "docs.example.com"
+    assert "/guide/" in job["seed_path_prefixes"]
+    assert "/api/" in job["seed_path_prefixes"]
+    assert len(job["seed_path_prefixes"]) == 2
+
+
+def test_create_recursive_mixed_hosts_raises():
+    store = JobStore()
+    with pytest.raises(ValueError, match="hostname"):
+        store.create([SEED, DIFF_DOMAIN], "pdf", "Test", {}, recursive=True)
+
+
+# --- add_item ---
+
+def test_add_item_adds_new_url():
+    store = JobStore()
+    job = store.create([SEED], "pdf", "Test", {}, recursive=True)
+    new_url = "https://docs.example.com/guide/advanced"
+    item = store.add_item(job["id"], new_url)
+    assert item is not None
+    assert item["url"] == new_url
+    assert item["status"] == "queued"
+    assert len(job["items"]) == 2
+
+
+def test_add_item_marks_url_visited():
+    store = JobStore()
+    job = store.create([SEED], "pdf", "Test", {}, recursive=True)
+    new_url = "https://docs.example.com/guide/advanced"
+    store.add_item(job["id"], new_url)
+    assert new_url in job["visited"]
+
+
+def test_add_item_duplicate_returns_none():
+    store = JobStore()
+    job = store.create([SEED], "pdf", "Test", {}, recursive=True)
+    result = store.add_item(job["id"], SEED)  # SEED already in visited
+    assert result is None
+
+
+def test_add_item_returns_correct_shape():
+    store = JobStore()
+    job = store.create([SEED], "pdf", "Test", {}, recursive=True)
+    item = store.add_item(job["id"], "https://docs.example.com/guide/page")
+    assert "id" in item
+    assert "url" in item
+    assert "domain" in item
+    assert "favicon" in item
+    assert item["status"] == "queued"
+    assert item["title"] is None
+    assert item["file"] is None
+    assert item["size"] is None
+    assert item["filename"] is None
+    assert item["error"] is None
+
+
+def test_add_item_at_cap_returns_none():
+    store = JobStore()
+    job = store.create([SEED], "pdf", "Test", {}, recursive=True, max_pages=1)
+    result = store.add_item(job["id"], "https://docs.example.com/guide/advanced")
+    assert result is None
+
+
+def test_add_item_at_cap_sets_cap_reached():
+    store = JobStore()
+    job = store.create([SEED], "pdf", "Test", {}, recursive=True, max_pages=1)
+    store.add_item(job["id"], "https://docs.example.com/guide/advanced")
+    assert job["cap_reached"] is True
+
+
+def test_add_item_cap_reached_set_only_once():
+    store = JobStore()
+    job = store.create([SEED], "pdf", "Test", {}, recursive=True, max_pages=1)
+    store.add_item(job["id"], "https://docs.example.com/guide/page1")
+    store.add_item(job["id"], "https://docs.example.com/guide/page2")
+    # Still True, not toggled back
+    assert job["cap_reached"] is True
+
+
+def test_add_item_invalid_job_id_returns_none():
+    store = JobStore()
+    result = store.add_item("nonexistent-id", "https://example.com/page")
+    assert result is None
