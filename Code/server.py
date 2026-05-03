@@ -232,6 +232,11 @@ async def _run_job(job: dict) -> None:
                         "max_pages": job["max_pages"],
                     })
                     cap_event_fired = True
+            except Exception:
+                logger.error(
+                    "Unexpected error in recursive worker job %s item %s",
+                    job["id"], item["id"], exc_info=True,
+                )
             finally:
                 active_count -= 1
                 if active_count == 0:
