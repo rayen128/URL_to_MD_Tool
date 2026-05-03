@@ -237,3 +237,10 @@ def test_add_item_invalid_job_id_returns_none():
     store = JobStore()
     result = store.add_item("nonexistent-id", "https://example.com/page")
     assert result is None
+
+
+def test_add_item_on_non_recursive_job_returns_none():
+    store = JobStore()
+    job = store.create(["https://example.com"], "pdf", "Test", {})
+    result = store.add_item(job["id"], "https://example.com/page")
+    assert result is None

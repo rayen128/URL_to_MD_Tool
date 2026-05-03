@@ -54,9 +54,10 @@ class JobStore:
     ) -> dict:
         # If recursive mode, validate all URLs share the same hostname
         if recursive:
-            hostnames = [urlparse(url).hostname for url in urls]
-            if len(set(hostnames)) > 1:
+            hostnames = {urlparse(u).hostname for u in urls}
+            if len(hostnames) != 1:
                 raise ValueError("All seed URLs must share the same hostname")
+            job_seed_hostname = next(iter(hostnames))
 
         job_id = f"j-{int(time.time() * 1000)}-{uuid.uuid4().hex[:6]}"
         items = [
@@ -88,7 +89,7 @@ class JobStore:
         if recursive:
             job["recursive"] = True
             job["max_pages"] = max_pages
-            job["seed_hostname"] = urlparse(urls[0]).hostname
+            job["seed_hostname"] = job_seed_hostname
             job["seed_path_prefixes"] = [_seed_prefix(url) for url in urls]
             job["visited"] = set(urls)
             job["cap_reached"] = False
@@ -133,6 +134,7 @@ class JobStore:
 
         Returns None if:
         - job_id not found
+        - job is not recursive
         - url already in visited
         - max_pages cap reached
 
@@ -141,20 +143,22 @@ class JobStore:
         job = self.get(job_id)
         if job is None:
             return None
+        if not job.get("recursive"):
+            return None
 
         # Check if URL already visited
-        if url in job.get("visited", set()):
+        if url in job["visited"]:
             return None
 
         # Check if at cap
-        if len(job["items"]) >= job.get("max_pages", float("inf")):
-            job["cap_reached"] = True
+        if len(job["items"]) >= job["max_pages"]:
+            if not job["cap_reached"]:
+                job["cap_reached"] = True
             return None
 
         # Create the new item
-        item_id = f"u-{len(job['items'])}"
         item = {
-            "id": item_id,
+            "id": f"u-{len(job['items'])}",
             "url": url,
             "domain": _domain(url),
             "favicon": _favicon(url),
