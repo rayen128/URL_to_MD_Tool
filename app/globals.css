@@ -1,0 +1,159 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --navy: #0e1e3f;
+  --navy-2: #132756;
+  --navy-ink: #1e2f54;
+  --green: #1a7f3c;
+  --green-2: #156931;
+  --green-ink: #156931;
+  --green-soft: #e6f2ea;
+  --orange: #f08a4b;
+  --orange-2: #e77a37;
+  --canvas: #f6f4ef;
+  --canvas-2: #fcfbf8;
+  --paper: #ffffff;
+  --line: #e5e1d8;
+  --line-2: #d6d1c3;
+  --secondary-hover: #e8e3d5;
+  --green-press: #0f5023;
+  --ink: #0e1e3f;
+  --ink-2: #3c4b6b;
+  --muted: #6b7591;
+  --danger: #b4421f;
+  --danger-soft: #fbeae2;
+  --warning: #c27a0e;
+  --radius: 0.625rem;
+  --radius-sm: 6px;
+  --radius-lg: 14px;
+  --shadow-sm: 0 1px 0 rgba(14, 30, 63, 0.04), 0 1px 2px rgba(14, 30, 63, 0.04);
+  --shadow-md: 0 1px 0 rgba(14, 30, 63, 0.04), 0 6px 24px -10px rgba(14, 30, 63, 0.15);
+  --shadow-lg: 0 2px 0 rgba(14, 30, 63, 0.04), 0 30px 60px -20px rgba(14, 30, 63, 0.35);
+  --font: "General Sans", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+
+  --background: var(--canvas);
+  --foreground: var(--ink);
+  --card: var(--paper);
+  --card-foreground: var(--ink);
+  --popover: var(--paper);
+  --popover-foreground: var(--ink);
+  --primary: var(--green);
+  --primary-foreground: #ffffff;
+  --secondary: #f1eee6;
+  --secondary-foreground: var(--ink-2);
+  --muted-shadcn: #f1eee6;
+  --muted-foreground: var(--muted);
+  --accent: var(--green-soft);
+  --accent-foreground: var(--green-2);
+  --destructive: var(--danger);
+  --destructive-foreground: #ffffff;
+  --border: var(--line);
+  --input: var(--line-2);
+  --ring: var(--green);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted-shadcn);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --font-sans: var(--font);
+  --font-mono: var(--mono);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  min-height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  min-height: 100vh;
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: var(--font);
+  font-feature-settings: "ss01", "cv11";
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: inherit;
+}
+
+/* Subtle, modern scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-2) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: var(--line-2);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--ink-2);
+  background-clip: content-box;
+}
+
+/* Hand cursor on all clickable affordances (buttons, role=button, links, switches,
+   tabs, menu items, anything that opts in via [tabindex=0] or [data-clickable]).
+   Disabled / aria-disabled elements stay on the not-allowed cursor. */
+button:not(:disabled),
+a[href],
+[role="button"]:not([aria-disabled="true"]),
+[role="tab"]:not([aria-disabled="true"]),
+[role="menuitem"]:not([aria-disabled="true"]),
+[role="option"]:not([aria-disabled="true"]),
+[role="switch"]:not([aria-disabled="true"]),
+[role="checkbox"]:not([aria-disabled="true"]),
+[role="radio"]:not([aria-disabled="true"]),
+summary,
+label[for] {
+  cursor: pointer;
+}
+
+button:disabled,
+[aria-disabled="true"] {
+  cursor: not-allowed;
+}

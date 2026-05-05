@@ -4,20 +4,31 @@ Convert any web page — including paywalled articles — to a **PDF** or **Mark
 
 ## Setup
 
-**Prerequisites:** Python 3.10+
+**Prerequisites:** Python 3.10+ and Node.js 20+
 
 ```bash
 pip install -r requirements.txt
 playwright install chromium
+npm ci
 ```
 
 ## Web UI
+
+Run the FastAPI backend:
 
 ```bash
 python Code/server.py
 ```
 
-Opens `http://localhost:8000` in your browser. Paste URLs, choose a format, optionally name the collection, and convert. Logs are written to `logs/server.log` and `logs/jobs.log`; both are cleared on each restart.
+In a second terminal, run the Next.js frontend:
+
+```bash
+npm run dev
+```
+
+Open `http://localhost:3000` in your browser. The frontend proxies `/api/*` requests to `http://127.0.0.1:8000` by default. To point the UI at a different backend, set `BACKEND_URL` before starting Next.js.
+
+Paste URLs, choose a format, optionally name the collection, and convert. Saved jobs appear in My Collection and are persisted under `output/_meta/`. Logs are written to `logs/server.log` and `logs/jobs.log`; both are cleared on each backend restart.
 
 ## Quick start (CLI)
 

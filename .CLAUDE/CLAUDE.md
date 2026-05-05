@@ -28,10 +28,13 @@ python Code/combine_pdfs.py "output/My_Collection"
 python Code/combine_pdfs.py "output/My_Collection" True           # recursive
 python Code/combine_pdfs.py "output/My_Collection" False "out.pdf"  # custom name
 
-# Start web UI
+# Start backend API (FastAPI on :8000)
 python Code/server.py
-# Opens http://localhost:8000 in the default browser
 # Ctrl+C to stop
+
+# Start frontend (Next.js on :3000) — proxies /api/* to :8000 (see next.config.mjs)
+npm install
+npm run dev
 
 # Run all unit tests
 pytest tests/ -v
@@ -50,12 +53,18 @@ Code/
   helpers.py                 # normalize_url(): shared URL normalization for cli.py and server.py
   converter.py               # Playwright browser, paywall bypass, AMP fallback
   rules.py                   # Content-validation (check_content) + site detection (SiteHeuristics, website_heuristics)
-  output.py                  # save_pdf() and save_markdown()
+  output.py                  # save_pdf, save_markdown, merge_pdfs, concat_markdown
+  server.py                  # FastAPI backend: /api/convert, /api/jobs/{id}/{stream,merged,zip}, /api/collections
+  jobs.py                    # JobStore: runtime state in memory + JSON snapshots in output/_meta/
   combine_pdfs.py            # Standalone PDF merger (no dependency on other modules)
   remove_paywall_extension/  # Unpacked Chrome extension loaded by Playwright
 output/                      # Default output root; subfolders created by --collection
+output/_merged/              # Cached merged downloads (one file per job_id)
+output/_meta/                # Persisted JobStore snapshots (one JSON per job_id)
 tests/                       # pytest unit tests — no real browser required
-web/                         # Frontend: index.html + src/*.jsx (Babel standalone, no build step)
+app/                         # Next.js 16 app router (layout, page, globals)
+components/                  # converter-form.jsx + shadcn ui primitives
+lib/                         # url, format, hooks/use-conversion-job
 ```
 
 ### `cli.py` — orchestrator
@@ -88,7 +97,10 @@ Standalone script. Scans a directory for `.pdf` files, sorts by filename, merges
 - **Startup side effects are guarded by `sys._server_logs_cleared`** — `server.py` is imported twice (once as `__main__`, once by uvicorn). This flag ensures log-clearing and directory-wiping run only once per process.
 - **`sanitize_filename` returns a stem, not a full filename** — no `.pdf`/`.md` suffix. The suffix is added in `cli.py:resolve_output_path`. Don't add it inside `sanitize_filename`. Stems are truncated at 120 characters.
 - **Incomplete URLs are accepted and normalized** — `normalize_url()` in `helpers.py` prepends `https://` to scheme-less inputs (`www.youtube.com` → `https://www.youtube.com`). Both `cli.py` and `server.py` call this before any processing. The hostname must contain a dot; single-label inputs (`hello`) raise `ValueError`.
-- **Frontend JSX files use manual cache-busting** — `web/index.html` loads each `.jsx` with a `?v=N` query string. Bump the version for any modified file to force browser cache invalidation.
+- **Frontend is Next.js 16 + shadcn (Tailwind v4)** — entry is `app/page.jsx` → `components/converter-form.jsx`. Run `npm run dev` for the dev server. The legacy `web/` Babel-CDN UI was removed in commit 10b363b.
+- **Backend timeout leaks intentionally** — `_run_with_timeout` cancels the asyncio future on `ITEM_TIMEOUT`, but the underlying Playwright thread can't be killed. `_executor` is sized at `CONCURRENCY + 2` to absorb leaked slots; `_semaphore` enforces real backpressure at `CONCURRENCY`.
+- **Merged downloads are cached per job** — `output/_merged/{job_id}.{ext}`. `job["merged_dirty"]` is set on every successful conversion and on retry; `download_merged` rebuilds when dirty. `_merge_executor` is a separate single-thread pool so merges never block the conversion executor. The `X-Merged-Skipped` response header reports how many files failed to merge.
+- **JobStore is partially persisted** — `JobStore.persist` snapshots persistable fields (id, name, format, items, recursive crawl state) to `output/_meta/{job_id}.json` on create / item-success / rename, and unlinks on delete. Runtime-only state (asyncio queues, event-loop refs, the `cancelled` flag, `merged_dirty`) is **not** persisted. On startup, `JobStore.hydrate` loads snapshots and flips any `queued` / `working` items to `error: "Interrupted"` — hydrated jobs are observable (downloadable, renameable) but cannot resume conversion. Hot-reloading the server (`uvicorn --reload`) will trip the hydrate path on every output write — don't enable reload here.
 - **All paths in `converter.py` are `Path(__file__).parent.parent`-relative** (project root), not `Path.cwd()`-relative. This matters when the tool is run from a different working directory.
 - **`open_page` cleanup is exception-safe** — `context.close()` and `playwright.stop()` are each wrapped in independent try/except blocks so a browser crash doesn't leak the Playwright process.
 - **Tests use mocked Playwright pages** — no real browser required. `tests/conftest.py` adds `Code/` to `sys.path` so test files can import `from converter import ...` directly.

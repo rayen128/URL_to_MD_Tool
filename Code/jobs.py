@@ -1,8 +1,25 @@
 import asyncio
+import json
+import logging
 import posixpath
 import time
 import uuid
+from pathlib import Path
 from urllib.parse import urlparse
+
+logger = logging.getLogger("jobs")
+
+# Disk persistence: one JSON file per job. Lives next to the converted outputs
+# so a single OUTPUT_ROOT wipe clears everything in step. Asyncio.Queue and
+# event-loop refs are not persisted — they're rebuilt lazily on first SSE.
+META_DIR = Path(__file__).parent.parent / "output" / "_meta"
+
+# Keys that survive across restarts. Anything else (cancelled flag, merged_dirty,
+# in-flight events) is intentionally dropped — restart is a clean slate for runtime state.
+_PERSIST_KEYS = {
+    "id", "name", "format", "created_at", "options", "items",
+    "recursive", "max_pages", "seed_hostname", "seed_path_prefixes", "cap_reached",
+}
 
 
 def _seed_prefix(url: str) -> str:
@@ -107,6 +124,7 @@ class JobStore:
             self._loops[job_id] = asyncio.get_running_loop()
         except RuntimeError:
             self._loops[job_id] = None
+        self.persist(job_id)
         return job
 
     def get(self, job_id: str) -> dict | None:
@@ -115,7 +133,56 @@ class JobStore:
     def delete(self, job_id: str) -> dict | None:
         self._queues.pop(job_id, None)
         self._loops.pop(job_id, None)
+        (META_DIR / f"{job_id}.json").unlink(missing_ok=True)
         return self._jobs.pop(job_id, None)
+
+    def persist(self, job_id: str) -> None:
+        """Snapshot a job's persistable state to disk. Called on create, on item
+        completion, and on rename. Best-effort — disk failures are logged, never raised."""
+        job = self._jobs.get(job_id)
+        if job is None:
+            return
+        META_DIR.mkdir(parents=True, exist_ok=True)
+        snapshot = {k: job[k] for k in _PERSIST_KEYS if k in job}
+        # `visited` is a set; JSON-serialise as a list and rebuild on hydrate.
+        if "visited" in job:
+            snapshot["visited"] = sorted(job["visited"])
+        try:
+            (META_DIR / f"{job_id}.json").write_text(json.dumps(snapshot), encoding="utf-8")
+        except OSError as e:
+            logger.warning("persist(%s) failed: %s", job_id, e)
+
+    def hydrate(self) -> None:
+        """Load persisted jobs from META_DIR into memory. Idempotent: existing
+        in-memory jobs win over disk (so a hot reload doesn't clobber live state)."""
+        if not META_DIR.exists():
+            return
+        for f in META_DIR.iterdir():
+            if not f.is_file() or f.suffix != ".json":
+                continue
+            try:
+                data = json.loads(f.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as e:
+                logger.warning("hydrate: skipping %s (%s)", f.name, e)
+                continue
+            job_id = data.get("id")
+            if not job_id or job_id in self._jobs:
+                continue
+            if "visited" in data:
+                data["visited"] = set(data["visited"])
+            data.setdefault("cancelled", False)
+            cleaned = False
+            for item in data.get("items", []):
+                if item.get("status") in ("queued", "working"):
+                    item["status"] = "error"
+                    item["error"] = "Interrupted"
+                    cleaned = True
+            self._jobs[job_id] = data
+            self._queues[job_id] = asyncio.Queue()
+            self._loops[job_id] = None
+            # Persist cleaned state so we don't re-flip the same items every restart.
+            if cleaned:
+                self.persist(job_id)
 
     def list_all(self) -> list[dict]:
         return sorted(self._jobs.values(), key=lambda j: j["created_at"], reverse=True)

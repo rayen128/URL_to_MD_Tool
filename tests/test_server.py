@@ -3,14 +3,19 @@ import json
 import zipfile
 import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 import server
 from server import app, _convert_one_sync
+import jobs as jobs_module
 from jobs import JobStore
 
 
 @pytest.fixture(autouse=True)
-def fresh_store(monkeypatch):
+def fresh_store(monkeypatch, tmp_path):
+    # Isolate from real ./output: the FastAPI startup hook hydrates from META_DIR
+    # and sweeps MERGED_DIR; without these patches tests would mutate real data.
+    monkeypatch.setattr(jobs_module, "META_DIR", tmp_path / "_meta")
+    monkeypatch.setattr(server, "MERGED_DIR", tmp_path / "_merged")
     s = JobStore()
     monkeypatch.setattr(server, "store", s)
     return s
@@ -169,6 +174,9 @@ def test_cancel_marks_queued_items_as_error(fresh_store):
         client.post(f"/api/jobs/{job['id']}/cancel")
     assert all(i["status"] == "error" for i in job["items"])
     assert all(i["error"] == "Cancelled" for i in job["items"])
+    persisted = json.loads((jobs_module.META_DIR / f"{job['id']}.json").read_text(encoding="utf-8"))
+    assert all(i["status"] == "error" for i in persisted["items"])
+    assert all(i["error"] == "Cancelled" for i in persisted["items"])
 
 
 def test_cancel_returns_404_for_unknown(fresh_store):
@@ -184,7 +192,7 @@ def test_retry_requeues_item_and_clears_cancelled(fresh_store):
     item["error"] = "Previous failure"
     job["cancelled"] = True
 
-    with patch("server._convert_one_sync") as mock_convert:
+    with patch("server._run_with_timeout", new_callable=AsyncMock) as mock_timeout:
         with TestClient(app) as client:
             r = client.post(f"/api/jobs/{job['id']}/retry/{item['id']}")
 
@@ -192,7 +200,8 @@ def test_retry_requeues_item_and_clears_cancelled(fresh_store):
     assert item["status"] == "queued"
     assert item["error"] is None
     assert job["cancelled"] is False
-    mock_convert.assert_called_once_with(job, item)
+    mock_timeout.assert_awaited_once()
+    assert mock_timeout.await_args.args[1:] == (job, item)
 
 
 def test_retry_returns_404_for_unknown_job(fresh_store):
@@ -271,3 +280,6 @@ def test_convert_one_sync_invalid_url_sets_error(fresh_store, tmp_path):
         mock_open.assert_not_called()
     assert item["status"] == "error"
     assert "Cannot normalize" in item["error"]
+    persisted = json.loads((jobs_module.META_DIR / f"{job['id']}.json").read_text(encoding="utf-8"))
+    assert persisted["items"][0]["status"] == "error"
+    assert "Cannot normalize" in persisted["items"][0]["error"]

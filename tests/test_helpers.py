@@ -44,3 +44,44 @@ def test_normalize_raises_for_garbage_with_spaces():
 def test_normalize_raises_for_single_label_hostname():
     with pytest.raises(ValueError):
         normalize_url("hello")
+
+
+def test_normalize_unwraps_markdown_link():
+    assert normalize_url("[Title](https://example.com/x)") == "https://example.com/x"
+
+
+def test_normalize_unwraps_angle_brackets():
+    assert normalize_url("<https://example.com>") == "https://example.com"
+
+
+def test_normalize_strips_trailing_punctuation():
+    assert normalize_url("https://example.com/x.") == "https://example.com/x"
+    assert normalize_url("https://example.com/x,") == "https://example.com/x"
+    assert normalize_url("https://example.com/x).") == "https://example.com/x"
+
+
+def test_normalize_rejects_javascript_scheme():
+    with pytest.raises(ValueError):
+        normalize_url("javascript:alert(1)")
+
+
+def test_normalize_rejects_ftp_scheme():
+    with pytest.raises(ValueError):
+        normalize_url("ftp://example.com")
+
+
+def test_normalize_rejects_file_scheme():
+    with pytest.raises(ValueError):
+        normalize_url("file:///etc/passwd")
+
+
+def test_normalize_rejects_userinfo():
+    with pytest.raises(ValueError):
+        normalize_url("user@example.com")
+    with pytest.raises(ValueError):
+        normalize_url("https://user:pass@example.com")
+
+
+def test_normalize_rejects_overlong_url():
+    with pytest.raises(ValueError):
+        normalize_url("https://example.com/" + "x" * 3000)

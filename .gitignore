@@ -10,3 +10,7 @@ _metadata
 docs*
 OVERVIEW.md
 .superpowers*
+node_modules
+.next/
+next-env.d.ts
+.playwright-mcp/
