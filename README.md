@@ -83,7 +83,7 @@ If a page fails to convert, a debug screenshot is saved in `logs/debug_screensho
 
 ## Improving the converter with Claude Code
 
-This repository ships a Claude Code skill — **`fix-conversion-failures`** — that helps diagnose and fix URLs that fail to convert. If you use Claude Code, the skill activates automatically whenever a conversion fails or you describe a scraping problem. It reads the logs and debug screenshots, classifies the failure (paywall, cookie banner, timeout, content check too strict, …), and proposes a targeted fix before touching any file.
+This repository ships a Claude Code skill — **`fix-conversion-failures`** — that helps diagnose and fix URLs that fail to convert. If you use Claude Code, the skill activates automatically whenever a conversion fails or you describe a scraping problem. It reads the logs and debug screenshots, classifies the failure (paywall, cookie banner, timeout, content check too strict, …), and proposes a targeted fix.
 
 To use it, open this repository in Claude Code and describe what's failing — or just paste a URL that doesn't work. Claude will take it from there.
 
